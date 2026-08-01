@@ -1,0 +1,591 @@
+﻿@using DynamicDashboardCommon.Models
+@using DynamicDashboardCommon.Models.TestAutomation
+@inject IJSRuntime JSRuntime
+
+<div class="comparison-container @(IsVisible ? "visible" : "")" @onclick:stopPropagation>
+    <div class="comparison-header">
+        <div class="header-info">
+            <h2>Advanced Test Analysis</h2>
+            <div class="metadata">
+                <div class="metadata-item">
+                    <span class="label">Question:</span>
+                    <span class="value">@TestDetail?.Question</span>
+                </div>
+                <div class="metadata-details">
+                    <div class="meta-badge category">
+                        <i class="fas fa-filter"></i>
+                        <span>Category: @(TestDetail?.QueryCategory ?? "Filter")</span>
+                    </div>
+                    <div class="meta-badge complexity">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Complexity: @(TestDetail?.ComplexityLevel ?? "Simple")</span>
+                    </div>
+                    <div class="meta-badge @(TestDetail?.Success == true ? "success" : "error")">
+                        <i class="fas @(TestDetail?.Success == true ? "fa-check-circle" : "fa-times-circle")"></i>
+                        <span>Status: @(TestDetail?.Success == true ? "Success" : "Failed")</span>
+                    </div>
+                    <div class="meta-badge time">
+                        <i class="fas fa-clock"></i>
+                        <span>Execution: @(TestDetail?.ExecutionTimeMs ?? 0) ms</span>
+                    </div>
+                </div>
+                <div class="metadata-stats">
+                    <div class="stat @GetStatusClass(TestDetail?.SQLMatchScore)">
+                        <span>SQL Match</span>
+                        <div class="gauge">
+                            <div class="gauge-fill" style="width: @(TestDetail?.SQLMatchScore * 100 ?? 0)%"></div>
+                        </div>
+                        <span>@FormatPercent(TestDetail?.SQLMatchScore)</span>
+                    </div>
+                    <div class="stat @GetStatusClass(TestDetail?.ExplanationMatchScore)">
+                        <span>Explanation</span>
+                        <div class="gauge">
+                            <div class="gauge-fill" style="width: @(TestDetail?.ExplanationMatchScore * 100 ?? 0)%"></div>
+                        </div>
+                        <span>@FormatPercent(TestDetail?.ExplanationMatchScore)</span>
+                    </div>
+                    <div class="stat @GetStatusClass(TestDetail?.DataMatchScore)">
+                        <span>Data Match</span>
+                        <div class="gauge">
+                            <div class="gauge-fill" style="width: @(TestDetail?.DataMatchScore * 100 ?? 0)%"></div>
+                        </div>
+                        <span>@FormatPercent(TestDetail?.DataMatchScore)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <button class="close-btn" @onclick="CloseComparisonView">×</button>
+    </div>
+
+    <div class="tabs">
+        <div class="tab @(ActiveTab == "sql" ? "active" : "")" @onclick='() => SetActiveTab("sql")'>
+            <i class="fas fa-database me-2"></i> SQL
+        </div>
+        <div class="tab @(ActiveTab == "explanation" ? "active" : "")" @onclick='() => SetActiveTab("explanation")'>
+            <i class="fas fa-comment-alt me-2"></i> Explanation
+        </div>
+        <div class="tab @(ActiveTab == "datasets" ? "active" : "")" @onclick='() => SetActiveTab("datasets")'>
+            <i class="fas fa-table me-2"></i> Datasets Comparison
+        </div>
+    </div>
+
+    <div class="tab-content">
+        @if (ActiveTab == "sql")
+        {
+            <div class="sql-comparison animate__animated animate__fadeIn">
+                <div class="split-view">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Expected SQL</h3>
+                            <div class="header-actions">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyToClipboard(TestDetail?.ExpectedSQL)">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="code-container">
+                            <pre class="code">@TestDetail?.ExpectedSQL</pre>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Generated SQL</h3>
+                            <div class="header-actions">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyToClipboard(TestDetail?.GeneratedSQL)">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="code-container">
+                            <pre class="code">@TestDetail?.GeneratedSQL</pre>
+                        </div>
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(TestDetail?.ErrorMessage))
+                {
+                    <div class="error-panel">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>@TestDetail.ErrorMessage</span>
+                    </div>
+                }
+            </div>
+        }
+        else if (ActiveTab == "explanation")
+        {
+            <div class="explanation-comparison animate__animated animate__fadeIn">
+                <div class="split-view">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Expected Explanation</h3>
+                        </div>
+                        <div class="text-container">
+                            <div class="text-content">@TestDetail?.ExpectedExplanation</div>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Generated Explanation</h3>
+                        </div>
+                        <div class="text-container">
+                            <div class="text-content">@TestDetail?.GeneratedExplanation</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (ActiveTab == "datasets")
+        {
+            <div class="dataset-comparison animate__animated animate__fadeIn">
+                @if (IsLoading)
+                {
+                    <div class="loading-container">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Loading dataset comparison...</p>
+                    </div>
+                }
+                else if (ComparisonData == null)
+                {
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-circle fa-3x"></i>
+                        <h4>No comparison data available</h4>
+                        <p>The comparison data could not be loaded.</p>
+                        <button class="btn btn-outline-primary mt-3" @onclick="OnRefresh">
+                            <i class="fas fa-sync-alt me-2"></i> Retry Loading
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="dataset-overview">
+                        <div class="overview-card">
+                            <div class="overview-header">
+                                <h3>Comparison Summary</h3>
+                                <div class="status-badge @(ComparisonData.IsEquivalent ? "success" : "warning")">
+                                    @(ComparisonData.IsEquivalent ? "Equivalent" : "Not Equivalent")
+                                </div>
+                            </div>
+                            <div class="overview-body">
+                                <div class="overview-stat">
+                                    <span class="stat-label">Matching Rows:</span>
+                                    <span class="stat-value success">@ComparisonData.MatchingRows</span>
+                                </div>
+                                <div class="overview-stat">
+                                    <span class="stat-label">Different Rows:</span>
+                                    <span class="stat-value @(ComparisonData.DifferentRows > 0 ? "error" : "")">
+                                        @ComparisonData.DifferentRows
+                                    </span>
+                                </div>
+                                <div class="overview-stat">
+                                    <span class="stat-label">Rows Compared:</span>
+                                    <span class="stat-value">@ComparisonData.TotalRowsCompared</span>
+                                </div>
+                                <div class="overview-stat">
+                                    <span class="stat-label">Structural Differences:</span>
+                                    <span class="stat-value @(ComparisonData.HasStructuralDifferences ? "warning" : "success")">
+                                        @(ComparisonData.HasStructuralDifferences ? "Yes" : "No")
+                                    </span>
+                                </div>
+                                <div class="overview-message">
+                                    @ComparisonData.ComparisonSummary
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="column-structure">
+                            <div class="structure-header">
+                                <h3>Column Structure</h3>
+                            </div>
+                            <div class="structure-body">
+                                @if (ComparisonData.CommonColumns.Any())
+                                {
+                                    <div class="structure-section">
+                                        <h4>Common Columns (@ComparisonData.CommonColumns.Count)</h4>
+                                        <div class="chip-container">
+                                            @foreach (var column in ComparisonData.CommonColumns)
+                                            {
+                                                <div class="chip chip-common">
+                                                    <i class="fas fa-link"></i> @column
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (ComparisonData.UniqueExpectedColumns.Any())
+                                {
+                                    <div class="structure-section">
+                                        <h4>Only in Expected (@ComparisonData.UniqueExpectedColumns.Count)</h4>
+                                        <div class="chip-container">
+                                            @foreach (var column in ComparisonData.UniqueExpectedColumns)
+                                            {
+                                                <div class="chip chip-expected">
+                                                    <i class="fas fa-plus-circle"></i> @column
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (ComparisonData.UniqueActualColumns.Any())
+                                {
+                                    <div class="structure-section">
+                                        <h4>Only in Actual (@ComparisonData.UniqueActualColumns.Count)</h4>
+                                        <div class="chip-container">
+                                            @foreach (var column in ComparisonData.UniqueActualColumns)
+                                            {
+                                                <div class="chip chip-actual">
+                                                    <i class="fas fa-minus-circle"></i> @column
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dataset-detail-tabs">
+                        <div class="tab @(ActiveDatasetTab == "differences" ? "active" : "")" @onclick='() => SetActiveDatasetTab("differences")'>
+                            <i class="fas fa-exclamation-triangle me-2"></i> Differences
+                        </div>
+                        <div class="tab @(ActiveDatasetTab == "expected" ? "active" : "")" @onclick='() => SetActiveDatasetTab("expected")'>
+                            <i class="fas fa-table me-2"></i> Expected Dataset
+                        </div>
+                        <div class="tab @(ActiveDatasetTab == "actual" ? "active" : "")" @onclick='() => SetActiveDatasetTab("actual")'>
+                            <i class="fas fa-table me-2"></i> Actual Dataset
+                        </div>
+                    </div>
+
+                    <div class="dataset-detail-content">
+                        @if (ActiveDatasetTab == "differences" && ComparisonData.Differences.Any())
+                        {
+                            <div class="differences-container animate__animated animate__fadeIn">
+                                <div class="panel-header">
+                                    <h3>Differences (@ComparisonData.Differences.Count)</h3>
+                                    <div class="header-actions">
+                                        <span class="record-count">Showing @(Math.Min(MaxDifferences, ComparisonData.Differences.Count)) of @ComparisonData.Differences.Count</span>
+                                        @if (ComparisonData.Differences.Count > DefaultMaxDifferences && MaxDifferences == DefaultMaxDifferences)
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => MaxDifferences = ComparisonData.Differences.Count">
+                                                Show All
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="table-container">
+                                    <table class="diff-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Row</th>
+                                                <th>Column</th>
+                                                <th>Expected Value</th>
+                                                <th>Actual Value</th>
+                                                <th>Type</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var diff in ComparisonData.Differences.Take(MaxDifferences))
+                                            {
+                                                <tr>
+                                                    <td>@(diff.RowIndex + 1)</td>
+                                                    <td>@diff.ColumnName</td>
+                                                    <td class="expected-cell">@FormatDiffValue(diff.ExpectedValue)</td>
+                                                    <td class="actual-cell">@FormatDiffValue(diff.ActualValue)</td>
+                                                    <td>
+                                                        <span class="diff-type @diff.DifferenceType.ToLowerInvariant()">
+                                                            @FormatDiffType(diff.DifferenceType)
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+                        else if (ActiveDatasetTab == "differences" && !ComparisonData.Differences.Any())
+                        {
+                            <div class="empty-differences animate__animated animate__fadeIn">
+                                <i class="fas fa-check-circle"></i>
+                                <h4>No differences found</h4>
+                                <p>The datasets are identical in all compared rows.</p>
+                            </div>
+                        }
+                        else if (ActiveDatasetTab == "expected")
+                        {
+                            <div class="dataset-view animate__animated animate__fadeIn">
+                                @if (!ComparisonData.Expected.Any())
+                                {
+                                    <div class="empty-dataset">
+                                        <i class="fas fa-table"></i>
+                                        <p>No expected dataset available</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="panel-header">
+                                        <h3>Expected Dataset</h3>
+                                        <div class="header-actions">
+                                            <span class="record-count">
+                                                Showing @Math.Min(MaxRows, ComparisonData.Expected.Count) of @ComparisonData.Expected.Count rows
+                                            </span>
+                                            @if (ComparisonData.Expected.Count > DefaultMaxRows && MaxRows == DefaultMaxRows)
+                                            {
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="() => MaxRows = ComparisonData.Expected.Count">
+                                                    Show All
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="table-container">
+                                        <table class="dataset-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    @foreach (var column in ComparisonData.Expected[0].Keys)
+                                                    {
+                                                        <th class="@(IsCommonColumn(column) ? "column-common" : "column-unique")">
+                                                            @column
+                                                            @if (IsCommonColumn(column))
+                                                            {
+                                                                <i class="fas fa-link common-icon" title="Column exists in both datasets"></i>
+                                                            }
+                                                            else
+                                                            {
+                                                                <i class="fas fa-plus-circle unique-icon" title="Column only in expected dataset"></i>
+                                                            }
+                                                        </th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (int i = 0; i < Math.Min(ComparisonData.Expected.Count, MaxRows); i++)
+                                                {
+                                                    var row = ComparisonData.Expected[i];
+                                                    <tr class="@(HasDifferenceInRow(i) ? "diff-row" : "")">
+                                                        <td>@(i + 1)</td>
+                                                        @foreach (var column in ComparisonData.Expected[0].Keys)
+                                                        {
+                                                            <td class="@(HasDifferenceInCell(i, column) ? "diff-cell" : "")">
+                                                                @FormatValue(row.TryGetValue(column, out var val) ? val : null)
+                                                            </td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else if (ActiveDatasetTab == "actual")
+                        {
+                            <div class="dataset-view animate__animated animate__fadeIn">
+                                @if (!ComparisonData.Actual.Any())
+                                {
+                                    <div class="empty-dataset">
+                                        <i class="fas fa-table"></i>
+                                        <p>No actual dataset available</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="panel-header">
+                                        <h3>Actual Dataset</h3>
+                                        <div class="header-actions">
+                                            <span class="record-count">
+                                                Showing @Math.Min(MaxRows, ComparisonData.Actual.Count) of @ComparisonData.Actual.Count rows
+                                            </span>
+                                            @if (ComparisonData.Actual.Count > DefaultMaxRows && MaxRows == DefaultMaxRows)
+                                            {
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="() => MaxRows = ComparisonData.Actual.Count">
+                                                    Show All
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="table-container">
+                                        <table class="dataset-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    @foreach (var column in ComparisonData.Actual[0].Keys)
+                                                    {
+                                                        <th class="@(IsCommonColumn(column) ? "column-common" : "column-unique")">
+                                                            @column
+                                                            @if (IsCommonColumn(column))
+                                                            {
+                                                                <i class="fas fa-link common-icon" title="Column exists in both datasets"></i>
+                                                            }
+                                                            else
+                                                            {
+                                                                <i class="fas fa-minus-circle unique-icon" title="Column only in actual dataset"></i>
+                                                            }
+                                                        </th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (int i = 0; i < Math.Min(ComparisonData.Actual.Count, MaxRows); i++)
+                                                {
+                                                    var row = ComparisonData.Actual[i];
+                                                    <tr class="@(HasDifferenceInRow(i) ? "diff-row" : "")">
+                                                        <td>@(i + 1)</td>
+                                                        @foreach (var column in ComparisonData.Actual[0].Keys)
+                                                        {
+                                                            <td class="@(HasDifferenceInCell(i, column) ? "diff-cell" : "")">
+                                                                @FormatValue(row.TryGetValue(column, out var val) ? val : null)
+                                                            </td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public TestAutomationDetail TestDetail { get; set; }
+    [Parameter] public DatasetComparisonResult ComparisonData { get; set; }
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private const int DefaultMaxRows = 100;
+    private const int DefaultMaxDifferences = 50;
+
+    private string ActiveTab { get; set; } = "datasets";
+    private string ActiveDatasetTab { get; set; } = "differences";
+    private int MaxRows { get; set; } = DefaultMaxRows;
+    private int MaxDifferences { get; set; } = DefaultMaxDifferences;
+
+    protected override void OnParametersSet()
+    {
+        // If we have more differences than rows, start with differences tab
+        if (ComparisonData?.Differences?.Count > 0 &&
+            ComparisonData.Differences.Count > Math.Min(ComparisonData.Expected?.Count ?? 0, ComparisonData.Actual?.Count ?? 0))
+        {
+            ActiveDatasetTab = "differences";
+        }
+        else
+        {
+            // Otherwise start with expected dataset tab
+            ActiveDatasetTab = "expected";
+        }
+    }
+
+    private async Task CloseComparisonView()
+    {
+        await OnClose.InvokeAsync();
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        ActiveTab = tab;
+    }
+
+    private void SetActiveDatasetTab(string tab)
+    {
+        ActiveDatasetTab = tab;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private string GetStatusClass(decimal? score)
+    {
+        if (!score.HasValue) return "error";
+
+        return score.Value switch
+        {
+            >= 0.9m => "excellent",
+            >= 0.7m => "good",
+            >= 0.5m => "fair",
+            _ => "poor"
+        };
+    }
+
+    private string FormatPercent(decimal? value)
+    {
+        return value.HasValue ? $"{value.Value:P1}" : "N/A";
+    }
+
+    private string FormatValue(object value)
+    {
+        if (value == null) return "";
+
+        if (value is DateTime dateTime)
+            return dateTime.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+        if (value is decimal decimalValue)
+            return decimalValue.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        if (value is double doubleValue)
+            return doubleValue.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        if (value is float floatValue)
+            return floatValue.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        return value.ToString();
+    }
+
+    private string FormatDiffValue(object value)
+    {
+        if (value == null) return "NULL";
+        return FormatValue(value);
+    }
+
+    private string FormatDiffType(string diffType)
+    {
+        switch (diffType)
+        {
+            case "ValueMismatch": return "Value Differs";
+            case "ColumnMissing": return "Missing Column";
+            case "RowNotFound": return "Row Not Found";
+            default: return diffType;
+        }
+    }
+
+    private bool IsCommonColumn(string column)
+    {
+        if (ComparisonData?.CommonColumns == null)
+            return false;
+
+        return ComparisonData.CommonColumns.Any(c =>
+            string.Equals(c, column, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool HasDifferenceInRow(int rowIndex)
+    {
+        if (ComparisonData?.Differences == null)
+            return false;
+
+        return ComparisonData.Differences.Any(d => d.RowIndex == rowIndex);
+    }
+
+    private bool HasDifferenceInCell(int rowIndex, string columnName)
+    {
+        if (ComparisonData?.Differences == null)
+            return false;
+
+        return ComparisonData.Differences.Any(d =>
+            d.RowIndex == rowIndex &&
+            string.Equals(d.ColumnName, columnName, StringComparison.OrdinalIgnoreCase));
+    }
+}

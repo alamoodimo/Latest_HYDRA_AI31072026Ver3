@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>هيدرا إيه آي - منصة ذكاء أعمال المؤسسات</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #0a0a0f; color: white; overflow-x: hidden; direction: rtl; unicode-bidi: embed; }
+        
+        /* Animations */
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes countUp { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); } 50% { box-shadow: 0 0 40px rgba(124, 58, 237, 0.5); } }
+        
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+        .animate-glow { animation: glow 3s ease-in-out infinite; }
+        
+        /* Navigation */
+        .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; padding: 16px 40px; display: flex; justify-content: space-between; align-items: center; background: rgba(10, 10, 15, 0.95); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .logo { display: flex; align-items: center; gap: 12px; font-size: 1.4rem; font-weight: 800; }
+        .logo-icon { width: 46px; height: 46px; background: linear-gradient(135deg, #00d4ff, #7c3aed); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; position: relative; overflow: hidden; }
+        .logo-icon::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.2) 50%, transparent 60%); animation: gradient 3s ease infinite; background-size: 200% 200%; }
+        .logo span { background: linear-gradient(135deg, #00d4ff, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-links { display: flex; gap: 4px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; }
+        .nav-links a { padding: 10px 20px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 0.85rem; font-weight: 500; border-radius: 8px; transition: all 0.3s; }
+        .nav-links a:hover, .nav-links a.active { background: rgba(255,255,255,0.1); color: white; }
+        
+        /* Hero */
+        .hero { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 120px 40px 80px; position: relative; overflow: hidden; text-align: center; }
+        .hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse at 30% 20%, rgba(0, 212, 255, 0.15) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(124, 58, 237, 0.15) 0%, transparent 50%), radial-gradient(ellipse at 50% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 70%); }
+        .grid-bg { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 60px 60px; }
+        .hero-orbs { position: absolute; inset: 0; pointer-events: none; }
+        .orb { position: absolute; border-radius: 50%; filter: blur(60px); }
+        .orb-1 { width: 400px; height: 400px; background: rgba(0, 212, 255, 0.1); top: 10%; left: 10%; animation: float 8s ease-in-out infinite; }
+        .orb-2 { width: 300px; height: 300px; background: rgba(124, 58, 237, 0.1); bottom: 20%; right: 10%; animation: float 6s ease-in-out infinite reverse; }
+        
+        .hero-content { position: relative; z-index: 1; max-width: 1000px; animation: slideUp 1s ease-out; }
+        .hero-badge { display: inline-flex; align-items: center; gap: 10px; padding: 12px 24px; background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(124, 58, 237, 0.15)); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 50px; font-size: 0.9rem; color: #00d4ff; margin-bottom: 28px; animation: glow 3s ease-in-out infinite; }
+        .hero-badge i { font-size: 1.1rem; }
+        .hero-title { font-size: 4.2rem; font-weight: 900; line-height: 1.1; margin-bottom: 20px; }
+        .hero-title span { background: linear-gradient(135deg, #00d4ff, #7c3aed, #10b981); background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: gradient 4s ease infinite; }
+        .hero-subtitle { font-size: 1.8rem; font-weight: 600; color: #a1a1aa; margin-bottom: 24px; }
+        .hero-subtitle em { font-style: normal; color: #10b981; }
+        .hero-desc { font-size: 1.15rem; color: #8892a6; line-height: 1.8; margin-bottom: 40px; max-width: 750px; margin-left: auto; margin-right: auto; }
+        
+        .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 50px; }
+        .btn { padding: 16px 32px; border-radius: 12px; font-size: 1rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 10px; transition: all 0.3s; border: none; cursor: pointer; }
+        .btn-primary { background: linear-gradient(135deg, #00d4ff, #7c3aed); color: white; position: relative; overflow: hidden; }
+        .btn-primary::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, #7c3aed, #00d4ff); opacity: 0; transition: opacity 0.3s; }
+        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 20px 40px rgba(0, 212, 255, 0.3); }
+        .btn-primary:hover::before { opacity: 1; }
+        .btn-primary span, .btn-primary i { position: relative; z-index: 1; }
+        .btn-outline { background: transparent; color: white; border: 1px solid rgba(255,255,255,0.2); }
+        .btn-outline:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.3); }
+        .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+        .btn-success:hover { transform: translateY(-3px); box-shadow: 0 20px 40px rgba(16, 185, 129, 0.3); }
+        
+        /* Hero Stats */
+        .hero-stats { display: flex; gap: 60px; justify-content: center; flex-wrap: wrap; }
+        .hero-stat { text-align: center; }
+        .hero-stat-value { font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #00d4ff, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
+        .hero-stat-label { font-size: 0.9rem; color: #6b7280; margin-top: 8px; }
+        
+        /* Section Base */
+        .section { padding: 100px 40px; }
+        .section-header { text-align: center; margin-bottom: 60px; }
+        .section-label { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.2); border-radius: 25px; font-size: 0.8rem; font-weight: 600; color: #00d4ff; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+        .section-title { font-size: 3rem; font-weight: 700; margin-bottom: 16px; }
+        .section-title span { background: linear-gradient(135deg, #00d4ff, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .section-desc { font-size: 1.1rem; color: #8892a6; max-width: 650px; margin: 0 auto; line-height: 1.7; }
+        
+        /* AI Features Section */
+        .ai-section { padding: 100px 40px; background: linear-gradient(180deg, rgba(124, 58, 237, 0.05) 0%, rgba(0, 212, 255, 0.03) 50%, rgba(0,0,0,0) 100%); position: relative; }
+        .ai-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1200px; margin: 0 auto; }
+        
+        .ai-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; padding: 36px; position: relative; overflow: hidden; transition: all 0.4s; }
+        .ai-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent); }
+        .ai-card:hover { transform: translateY(-8px); border-color: rgba(255,255,255,0.15); box-shadow: 0 25px 50px rgba(0,0,0,0.3); }
+        .ai-card.chat { --accent: linear-gradient(90deg, #00d4ff, #0ea5e9); }
+        .ai-card.insights { --accent: linear-gradient(90deg, #7c3aed, #a855f7); }
+        .ai-card.speed { --accent: linear-gradient(90deg, #10b981, #34d399); }
+        
+        .ai-icon { width: 70px; height: 70px; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin-bottom: 24px; position: relative; }
+        .ai-card.chat .ai-icon { background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(0, 212, 255, 0.05)); color: #00d4ff; }
+        .ai-card.insights .ai-icon { background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(124, 58, 237, 0.05)); color: #7c3aed; }
+        .ai-card.speed .ai-icon { background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)); color: #10b981; }
+        
+        .ai-badge { position: absolute; top: -8px; right: -8px; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; font-size: 0.65rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
+        
+        .ai-card h3 { font-size: 1.4rem; font-weight: 700; margin-bottom: 12px; }
+        .ai-card > p { color: #8892a6; font-size: 0.95rem; line-height: 1.7; margin-bottom: 24px; }
+        
+        .ai-features { display: flex; flex-direction: column; gap: 12px; }
+        .ai-feature { display: flex; align-items: flex-start; gap: 12px; font-size: 0.9rem; color: #cbd5e1; }
+        .ai-feature i { width: 20px; margin-top: 2px; }
+        .ai-card.chat .ai-feature i { color: #00d4ff; }
+        .ai-card.insights .ai-feature i { color: #7c3aed; }
+        .ai-card.speed .ai-feature i { color: #10b981; }
+        
+        /* Chat Preview */
+        .chat-preview { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 16px; margin-top: 20px; }
+        .chat-message { display: flex; gap: 10px; margin-bottom: 12px; }
+        .chat-message:last-child { margin-bottom: 0; }
+        .chat-avatar { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; flex-shrink: 0; }
+        .chat-avatar.user { background: rgba(124, 58, 237, 0.3); color: #a78bfa; }
+        .chat-avatar.ai { background: linear-gradient(135deg, #00d4ff, #7c3aed); color: white; }
+        .chat-bubble { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 10px 14px; font-size: 0.8rem; color: #a1a1aa; line-height: 1.5; }
+        .chat-bubble.ai { background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(124, 58, 237, 0.1)); color: #e2e8f0; }
+        
+        /* Value Metrics Section */
+        .metrics-section { padding: 80px 40px; background: linear-gradient(135deg, rgba(0, 212, 255, 0.03), rgba(124, 58, 237, 0.03)); border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .metrics-container { max-width: 1200px; margin: 0 auto; }
+        .metrics-header { text-align: center; margin-bottom: 50px; }
+        .metrics-header h2 { font-size: 2.2rem; font-weight: 700; margin-bottom: 12px; }
+        .metrics-header p { color: #8892a6; font-size: 1.05rem; }
+        
+        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; }
+        .metric-card { text-align: center; padding: 30px 20px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; transition: all 0.3s; }
+        .metric-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.04); border-color: rgba(0, 212, 255, 0.2); }
+        .metric-icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin: 0 auto 16px; }
+        .metric-card:nth-child(1) .metric-icon { background: rgba(0, 212, 255, 0.15); color: #00d4ff; }
+        .metric-card:nth-child(2) .metric-icon { background: rgba(124, 58, 237, 0.15); color: #7c3aed; }
+        .metric-card:nth-child(3) .metric-icon { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+        .metric-card:nth-child(4) .metric-icon { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+        .metric-value { font-size: 2.8rem; font-weight: 800; margin-bottom: 8px; background: linear-gradient(135deg, #fff, #a1a1aa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .metric-label { font-size: 0.95rem; color: #6b7280; margin-bottom: 6px; }
+        .metric-desc { font-size: 0.8rem; color: #4b5563; }
+        
+        /* Who Benefits Section */
+        .benefits-section { padding: 100px 40px; }
+        .benefits-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; max-width: 1200px; margin: 0 auto; }
+        
+        .benefit-card { background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; padding: 36px; transition: all 0.4s; position: relative; overflow: hidden; }
+        .benefit-card::before { content: ''; position: absolute; top: 0; right: 0; width: 150px; height: 150px; background: var(--glow); border-radius: 50%; filter: blur(80px); opacity: 0.3; }
+        .benefit-card:hover { transform: translateY(-6px); border-color: rgba(255,255,255,0.15); }
+        .benefit-card.exec { --glow: rgba(0, 212, 255, 0.3); }
+        .benefit-card.analyst { --glow: rgba(124, 58, 237, 0.3); }
+        .benefit-card.it { --glow: rgba(16, 185, 129, 0.3); }
+        
+        .benefit-icon { width: 60px; height: 60px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 20px; }
+        .benefit-card.exec .benefit-icon { background: rgba(0, 212, 255, 0.15); color: #00d4ff; }
+        .benefit-card.analyst .benefit-icon { background: rgba(124, 58, 237, 0.15); color: #7c3aed; }
+        .benefit-card.it .benefit-icon { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+        
+        .benefit-card h3 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+        .benefit-card .role { font-size: 0.85rem; color: #6b7280; margin-bottom: 16px; }
+        .benefit-card > p { color: #8892a6; font-size: 0.9rem; line-height: 1.7; margin-bottom: 20px; }
+        
+        .benefit-list { display: flex; flex-direction: column; gap: 10px; }
+        .benefit-item { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: #cbd5e1; }
+        .benefit-item i { font-size: 0.75rem; }
+        .benefit-card.exec .benefit-item i { color: #00d4ff; }
+        .benefit-card.analyst .benefit-item i { color: #7c3aed; }
+        .benefit-card.it .benefit-item i { color: #10b981; }
+        
+        /* Architecture Diagram */
+        .arch-section { padding: 100px 40px; background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(124, 58, 237, 0.03) 50%, rgba(0,0,0,0) 100%); }
+        .arch-container { max-width: 1100px; margin: 0 auto; }
+        
+        /* Data Sources */
+        .sources-wrapper { text-align: center; margin-bottom: 30px; }
+        .sources-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .sources-label::before, .sources-label::after { content: ''; width: 60px; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2)); }
+        .sources-label::after { background: linear-gradient(90deg, rgba(255,255,255,0.2), transparent); }
+        
+        .sources-grid { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+        .source-card { background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 16px; padding: 20px 24px; text-align: center; min-width: 110px; transition: all 0.3s; }
+        .source-card:hover { transform: translateY(-5px); border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 10px 30px rgba(239, 68, 68, 0.15); }
+        .source-card i { font-size: 1.8rem; color: #ef4444; margin-bottom: 10px; display: block; }
+        .source-card span { font-size: 0.8rem; font-weight: 500; display: block; }
+        .source-card small { font-size: 0.65rem; color: #6b7280; }
+        
+        /* Connection Visualization */
+        .connector { display: flex; flex-direction: column; align-items: center; padding: 25px 0; }
+        .connector-lines { display: flex; gap: 50px; }
+        .conn-line { width: 2px; height: 50px; background: linear-gradient(180deg, #ef4444, #00d4ff); border-radius: 4px; }
+        .connector-badge { margin-top: 12px; display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; font-size: 0.75rem; color: #8892a6; }
+        .connector-badge i { color: #00d4ff; }
+        
+        /* Platform Core */
+        .platform-core { background: linear-gradient(135deg, rgba(0, 212, 255, 0.08), rgba(124, 58, 237, 0.08)); border: 2px solid rgba(0, 212, 255, 0.3); border-radius: 24px; padding: 40px; position: relative; margin-bottom: 30px; }
+        .platform-core::before { content: ''; position: absolute; inset: -2px; background: linear-gradient(135deg, rgba(0, 212, 255, 0.5), rgba(124, 58, 237, 0.5)); border-radius: 24px; z-index: -1; filter: blur(30px); opacity: 0.3; }
+        
+        .core-header { text-align: center; margin-bottom: 30px; }
+        .core-header h3 { font-size: 1.6rem; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .core-header h3 span { background: linear-gradient(135deg, #00d4ff, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .core-header p { color: #8892a6; font-size: 0.9rem; }
+        
+        .core-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .core-feature { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 20px; text-align: center; transition: all 0.3s; }
+        .core-feature:hover { background: rgba(255,255,255,0.06); transform: translateY(-3px); }
+        .core-feature i { font-size: 1.6rem; margin-bottom: 10px; display: block; }
+        .core-feature.f1 i { color: #00d4ff; }
+        .core-feature.f2 i { color: #7c3aed; }
+        .core-feature.f3 i { color: #10b981; }
+        .core-feature.f4 i { color: #f59e0b; }
+        .core-feature h4 { font-size: 0.9rem; margin-bottom: 4px; }
+        .core-feature p { font-size: 0.7rem; color: #6b7280; }
+        
+        /* Output Modules */
+        .outputs-wrapper { margin-top: 30px; }
+        .outputs-label { text-align: center; font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px; }
+        .outputs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .output-card { background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.03)); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 20px; padding: 28px; text-align: center; transition: all 0.4s; cursor: pointer; text-decoration: none; color: white; display: block; }
+        .output-card:hover { transform: translateY(-8px); border-color: rgba(16, 185, 129, 0.4); box-shadow: 0 20px 50px rgba(16, 185, 129, 0.15); }
+        .output-icon { width: 60px; height: 60px; background: rgba(16, 185, 129, 0.15); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 1.5rem; color: #10b981; }
+        .output-card h4 { font-size: 1.1rem; font-weight: 600; margin-bottom: 6px; }
+        .output-card p { font-size: 0.8rem; color: #8892a6; margin-bottom: 16px; line-height: 1.5; }
+        .output-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+        .output-tag { padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.65rem; color: #a1a1aa; }
+        
+        /* Flow Section */
+        .flow-section { padding: 100px 40px; }
+        .flow-container { max-width: 1000px; margin: 0 auto; }
+        .flow-steps { display: flex; position: relative; }
+        .flow-steps::before { content: ''; position: absolute; top: 45px; left: 80px; right: 80px; height: 3px; background: linear-gradient(90deg, #f97316, #00d4ff, #7c3aed, #10b981); border-radius: 3px; }
+        .flow-step { flex: 1; text-align: center; position: relative; }
+        .flow-num { width: 90px; height: 90px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 1.8rem; font-weight: 700; position: relative; z-index: 1; transition: all 0.3s; }
+        .flow-step:hover .flow-num { transform: scale(1.1); }
+        .flow-step:nth-child(1) .flow-num { background: linear-gradient(135deg, #f97316, #fb923c); }
+        .flow-step:nth-child(2) .flow-num { background: linear-gradient(135deg, #00d4ff, #0ea5e9); }
+        .flow-step:nth-child(3) .flow-num { background: linear-gradient(135deg, #7c3aed, #8b5cf6); }
+        .flow-step:nth-child(4) .flow-num { background: linear-gradient(135deg, #10b981, #34d399); }
+        .flow-step h4 { font-size: 1.05rem; font-weight: 600; margin-bottom: 8px; }
+        .flow-step p { font-size: 0.85rem; color: #6b7280; line-height: 1.6; padding: 0 10px; }
+        
+        /* Modules Section */
+        .modules-section { padding: 100px 40px; background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0, 212, 255, 0.02) 50%, rgba(0,0,0,0) 100%); }
+        .modules-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1200px; margin: 0 auto; }
+        
+        .module-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 32px; position: relative; overflow: hidden; transition: all 0.4s; }
+        .module-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent); }
+        .module-card:hover { transform: translateY(-6px); border-color: rgba(255,255,255,0.15); }
+        .module-card.admin { --accent: linear-gradient(90deg, #f97316, #fb923c); }
+        .module-card.dashboard { --accent: linear-gradient(90deg, #00d4ff, #7c3aed); }
+        .module-card.report { --accent: linear-gradient(90deg, #10b981, #34d399); }
+        
+        .module-icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-bottom: 20px; }
+        .module-card.admin .module-icon { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+        .module-card.dashboard .module-icon { background: rgba(0, 212, 255, 0.15); color: #00d4ff; }
+        .module-card.report .module-icon { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+        
+        .module-card h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 8px; }
+        .module-card > p { color: #8892a6; font-size: 0.85rem; line-height: 1.6; margin-bottom: 20px; }
+        
+        .module-highlight { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 10px; font-size: 0.8rem; color: #10b981; margin-bottom: 16px; }
+        .module-highlight i { font-size: 0.9rem; }
+        
+        .module-features { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+        .module-feature { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: #cbd5e1; }
+        .module-feature i { width: 18px; font-size: 0.8rem; }
+        .module-card.admin .module-feature i { color: #f97316; }
+        .module-card.dashboard .module-feature i { color: #00d4ff; }
+        .module-card.report .module-feature i { color: #10b981; }
+        
+        .module-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: white; text-decoration: none; font-weight: 500; font-size: 0.85rem; transition: all 0.3s; cursor: pointer; }
+        .module-btn:hover { background: rgba(255,255,255,0.1); }
+        
+        /* Security Section */
+        .security-section { padding: 80px 40px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.03), rgba(0, 212, 255, 0.03)); border-top: 1px solid rgba(255,255,255,0.05); }
+        .security-container { max-width: 1000px; margin: 0 auto; display: flex; align-items: center; gap: 60px; }
+        .security-content { flex: 1; }
+        .security-content h2 { font-size: 2rem; font-weight: 700; margin-bottom: 16px; }
+        .security-content > p { color: #8892a6; line-height: 1.7; margin-bottom: 24px; }
+        .security-badges { display: flex; flex-wrap: wrap; gap: 12px; }
+        .security-badge { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 0.85rem; color: #cbd5e1; }
+        .security-badge i { color: #10b981; }
+        .security-visual { flex: 0 0 300px; display: flex; align-items: center; justify-content: center; }
+        .security-icon-large { width: 200px; height: 200px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(0, 212, 255, 0.1)); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 5rem; color: #10b981; position: relative; }
+        .security-icon-large::before { content: ''; position: absolute; inset: -10px; border: 2px dashed rgba(16, 185, 129, 0.3); border-radius: 50%; animation: spin 20s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        /* CTA Section */
+        .cta-section { padding: 100px 40px; text-align: center; position: relative; overflow: hidden; }
+        .cta-section::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(124, 58, 237, 0.1) 0%, transparent 70%); }
+        .cta-content { position: relative; z-index: 1; max-width: 700px; margin: 0 auto; }
+        .cta-content h2 { font-size: 2.8rem; font-weight: 700; margin-bottom: 16px; }
+        .cta-content h2 span { background: linear-gradient(135deg, #00d4ff, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .cta-content p { color: #8892a6; font-size: 1.1rem; line-height: 1.7; margin-bottom: 32px; }
+        .cta-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+        
+        /* Footer */
+        .footer { padding: 50px 40px 30px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .footer-content { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
+        .footer-brand { max-width: 300px; }
+        .footer-logo { display: flex; align-items: center; gap: 10px; font-size: 1.2rem; font-weight: 700; margin-bottom: 12px; }
+        .footer-logo-icon { width: 36px; height: 36px; background: linear-gradient(135deg, #00d4ff, #7c3aed); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+        .footer-brand p { color: #6b7280; font-size: 0.85rem; line-height: 1.6; }
+        .footer-links-group { display: flex; gap: 80px; }
+        .footer-col h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 16px; color: #a1a1aa; }
+        .footer-col a { display: block; color: #6b7280; text-decoration: none; font-size: 0.85rem; margin-bottom: 10px; transition: color 0.3s; }
+        .footer-col a:hover { color: white; }
+        .footer-bottom { text-align: center; padding-top: 30px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .footer-bottom p { color: #4b5563; font-size: 0.8rem; }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero-title { font-size: 3rem; }
+            .hero-subtitle { font-size: 1.4rem; }
+            .modules-grid, .outputs-grid, .ai-grid, .benefits-grid { grid-template-columns: 1fr; }
+            .core-features { grid-template-columns: repeat(2, 1fr); }
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+            .flow-steps { flex-direction: column; gap: 30px; }
+            .flow-steps::before { display: none; }
+            .security-container { flex-direction: column; text-align: center; }
+            .security-badges { justify-content: center; }
+            .footer-content { flex-direction: column; gap: 40px; }
+            .footer-links-group { gap: 40px; }
+        }
+        @media (max-width: 768px) {
+            .nav { padding: 12px 20px; }
+            .nav-links { display: none; }
+            .hero { padding: 100px 20px 60px; }
+            .hero-title { font-size: 2.4rem; }
+            .hero-subtitle { font-size: 1.2rem; }
+            .hero-stats { gap: 30px; }
+            .hero-stat-value { font-size: 2rem; }
+            .section { padding: 60px 20px; }
+            .section-title { font-size: 2rem; }
+            .sources-grid { gap: 10px; }
+            .source-card { padding: 16px; min-width: 90px; }
+            .metrics-grid { grid-template-columns: 1fr; }
+            .cta-content h2 { font-size: 2rem; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="logo">
+            <div class="logo-icon"><i class="fas fa-bolt-lightning"></i></div>
+            <span>هيدرا إيه آي</span>
+        </div>
+        <div class="nav-links">
+            <a href="#hero" class="active">نظرة عامة</a>
+            <a href="#ai-features">ميزات الذكاء الاصطناعي</a>
+            <a href="#architecture">الهيكل</a>
+            <a href="#modules">الوحدات</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero" id="hero">
+        <div class="hero-bg"></div>
+        <div class="grid-bg"></div>
+        <div class="hero-orbs">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+        </div>
+        <div class="hero-content">
+            <div class="hero-badge">
+                <i class="fas fa-wand-magic-sparkles"></i>
+                <span>منصة ذكاء أعمال مدعومة بالذكاء الاصطناعي</span>
+            </div>
+            <h1 class="hero-title">
+                بناء لوحات التحكم والتقارير<br/>
+                <span>في دقائق</span>
+            </h1>
+            <p class="hero-subtitle">
+                من البيانات الخام إلى <em>رؤى قابلة للتنفيذ</em> — مدعومة بالذكاء الاصطناعي
+            </p>
+            <p class="hero-desc">
+                هيدرا إيه آي هي منصة طبقة وسطية ذكية تربط جميع مصادر بيانات منظمتك، 
+                مما يمكن أي شخص من إنشاء لوحات تحكم مذهلة، إنشاء تقارير شاملة، والدردشة مع بياناتك 
+                باستخدام اللغة الطبيعية — كل ذلك مع تحليلات مدعومة بالذكاء الاصطناعي ورؤى تلقائية.
+            </p>
+            <div class="hero-buttons">
+                <a href="#ai-features" class="btn btn-primary">
+                    <i class="fas fa-sparkles"></i>
+                    <span>استكشاف ميزات الذكاء الاصطناعي</span>
+                </a>
+                <a href="#architecture" class="btn btn-outline">
+                    <i class="fas fa-sitemap"></i>
+                    عرض الهيكل
+                </a>
+                <a href="#modules" class="btn btn-success">
+                    <i class="fas fa-play"></i>
+                    عرض الوحدات
+                </a>
+            </div>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <div class="hero-stat-value">90%</div>
+                    <div class="hero-stat-label">إنشاء لوحات تحكم أسرع</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">5</div>
+                    <div class="hero-stat-label">أنواع مصادر البيانات</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">في دقائق</div>
+                    <div class="hero-stat-label">من البيانات إلى الرؤى</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">24/7</div>
+                    <div class="hero-stat-label">مساعد الذكاء الاصطناعي متاح</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- AI Features Section -->
+    <section class="ai-section" id="ai-features">
+        <div class="section-header">
+            <div class="section-label"><i class="fas fa-brain"></i> الذكاء المدعوم بالذكاء الاصطناعي</div>
+            <h2 class="section-title"> <span>عقل الذكاء الاصطناعي</span> خلف بياناتك</h2>
+            <p class="section-desc">استمتع بمستقبل ذكاء الأعمال مع الذكاء الاصطناعي الحواري، الرؤى التلقائية، وإنشاء التقارير السريع</p>
+        </div>
+        
+        <div class="ai-grid">
+            <!-- AI Chat Assistant -->
+            <div class="ai-card chat">
+                <div class="ai-icon">
+                    <i class="fas fa-comments"></i>
+                    <span class="ai-badge">جديد</span>
+                </div>
+                <h3>مساعد الدردشة بالذكاء الاصطناعي</h3>
+                <p>أجرِ حوارًا مع بياناتك. اسأل أسئلة باللغة الإنجليزية العادية واحصل على تصورات فورية وتوصيات.</p>
+                <div class="ai-features">
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>استعلامات باللغة الطبيعية — لا حاجة لـ SQL</span>
+                    </div>
+                    
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>إنشاء رسوم بيانية وجداول فورية</span>
+                    </div>
+					                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>تحليل البيانات واقتراحات الرسوم البيانية</span>
+                    </div>
+										                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>إدارة لوحات التحكم</span>
+                    </div>
+                    
+                </div>
+                <!-- <div class="chat-preview"> -->
+                    <!-- <div class="chat-message"> -->
+                        <!-- <div class="chat-avatar user"><i class="fas fa-user"></i></div> -->
+                        <!-- <div class="chat-bubble">أظهر لي المبيعات حسب المنطقة للربع الرابع</div> -->
+                    <!-- </div> -->
+                    <!-- <div class="chat-message"> -->
+                        <!-- <div class="chat-avatar ai"><i class="fas fa-robot"></i></div> -->
+                        <!-- <div class="chat-bubble ai">إليك رسم بياني لمبيعات الربع الرابع الإقليمية، يمكنك إضافته إلى لوحة التحكم الخاصة بك</div> -->
+                    <!-- </div> -->
+                <!-- </div> -->
+            </div>
+            
+            <!-- AI Analytics & Insights -->
+            <div class="ai-card insights">
+                <div class="ai-icon">
+                    <i class="fas fa-lightbulb"></i>
+                </div>
+                <h3>التحليلات التلقائية والرؤى</h3>
+                <p>دع الذكاء الاصطناعي يكتشف الأنماط والشذوذات والفرص في بياناتك تلقائيًا — تقديم رؤى قد تكون فاتتك.</p>
+                <div class="ai-features">
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>كشف الاتجاهات التلقائي</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>رؤى الشذوذات</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>لوحات تحكم الأداء والتحليلات التفصيلية</span>
+                    </div>
+					                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>لوحات تحكم المالية والمبيعات</span>
+                    </div>
+										                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>لوحات تحكم مستوى C</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>إنشاء ملخص تنفيذي</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>اكتشاف الارتباطات</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>اقتراحات مؤشرات الأداء الرئيسية</span>
+                    </div>
+					                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>تقنية الحافة وتصميم حديث</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Speed & Generation -->
+            <div class="ai-card speed">
+                <div class="ai-icon">
+                    <i class="fas fa-rocket"></i>
+                </div>
+                <h3>في دقائق</h3>
+                <p>إنشاء لوحات تحكم وتقارير كاملة في دقائق. يتعامل الذكاء الاصطناعي بالعمل الثقيل بينما تركز أنت على القرارات.</p>
+                <div class="ai-features">
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>إنشاء لوحة تحكم بنقرة واحدة</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>يقترح الذكاء الاصطناعي أفضل التصورات</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>توصيات تخطيط ذكية</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>سرديات تقارير مولدة تلقائيًا</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>ذكاء القوالب</span>
+                    </div>
+                    <div class="ai-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>تصدير فوري إلى PDF/Excel/Word</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Value Metrics Section -->
+    <section class="metrics-section">
+        <div class="metrics-container">
+            <div class="metrics-header">
+                <h2>تحويل استراتيجية بيانات منظمتك</h2>
+                <p>تأثير قابل للقياس من اليوم الأول</p>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-icon"><i class="fas fa-clock"></i></div>
+                    <div class="metric-value">90%</div>
+                    <div class="metric-label">وقت أسرع للرؤى</div>
+                    <div class="metric-desc">من أسابيع إلى دقائق</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon"><i class="fas fa-users"></i></div>
+                    <div class="metric-value">100%</div>
+                    <div class="metric-label">إمكانية الوصول للفريق</div>
+                    <div class="metric-desc">لا مهارات فنية مطلوبة</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon"><i class="fas fa-database"></i></div>
+                    <div class="metric-value">5</div>
+                    <div class="metric-label">أنواع مصادر البيانات</div>
+                    <div class="metric-desc">منصة موحدة واحدة</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon"><i class="fas fa-chart-line"></i></div>
+                    <div class="metric-value">∞</div>
+                    <div class="metric-label">لوحات التحكم والتقارير</div>
+                    <div class="metric-desc">إنشاء غير محدود</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Who Benefits Section -->
+    <section class="benefits-section" id="benefits">
+        <div class="section-header">
+            <div class="section-label"><i class="fas fa-users"></i> من يستفيد</div>
+            <h2 class="section-title">مبنية لـ <span>منظمتك بأكملها</span></h2>
+            <p class="section-desc">من التنفيذيين في المستوى C إلى محللي البيانات، تمكن هيدرا إيه آي الجميع من اتخاذ قرارات مدعومة بالبيانات</p>
+        </div>
+        
+        <div class="benefits-grid">
+            <div class="benefit-card exec">
+                <div class="benefit-icon"><i class="fas fa-crown"></i></div>
+                <h3>التنفيذيون وصناع القرارات</h3>
+                <div class="role">الرئيس التنفيذي، المدير المالي، نائب الرئيس، المديرون</div>
+                <p>احصل على رؤية فورية لمؤشرات الأداء الرئيسية وصحة الأعمال. اتخذ قرارات واثقة مدعومة ببيانات في الوقت الفعلي ورؤى مولدة بالذكاء الاصطناعي.</p>
+                <div class="benefit-list">
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> لوحات تحكم تنفيذية بنقرة واحدة</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> ملخصات أعمال مولدة بالذكاء الاصطناعي</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> مراقبة مؤشرات الأداء الرئيسية في الوقت الفعلي</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> رؤى بيانات على مستوى التنفيذي</div>
+                </div>
+            </div>
+            
+            <div class="benefit-card analyst">
+                <div class="benefit-icon"><i class="fas fa-chart-pie"></i></div>
+                <h3>فرق العمليات</h3>
+                <div class="role">مديرو العمليات، قادة الفرق، الفرق</div>
+                <p>الوصول إلى لوحات تحكم عملياتية في الوقت الفعلي وتقارير جاهزة بدون أي معرفة فنية. مراقبة مؤشرات الأداء الرئيسية، تتبع الأداء ورؤى تلقائية</p>
+                <div class="benefit-list">
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> رؤية عملياتية في الوقت الفعلي</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> لوحات تحكم بيانات عملياتية جاهزة</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> تتبع الأداء</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> تحليلات تفصيلية</div>
+                </div>
+            </div>
+            
+            <div class="benefit-card it">
+                <div class="benefit-icon"><i class="fas fa-server"></i></div>
+                <h3>فرق تكنولوجيا المعلومات والبيانات</h3>
+                <div class="role">مديرو قواعد البيانات، مهندسي البيانات، مديرو تكنولوجيا المعلومات</div>
+                <p>الحفاظ على السيطرة مع تمكين المستخدمين. اتصالات آمنة، وصول بناءً على الأدوار، وحوكمة بيانات مركزية.</p>
+                <div class="benefit-list">
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> حوكمة بيانات مركزية</div>
+					<div class="benefit-item"><i class="fas fa-arrow-right"></i> إدارة أنظمة موحدة</div>
+                    <!-- <div class="benefit-item"><i class="fas fa-arrow-right"></i> التحكم في الوصول بناءً على الأدوار</div> -->
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> اتصالات مشفرة آمنة</div>
+                    <div class="benefit-item"><i class="fas fa-arrow-right"></i> مسارات التدقيق والامتثال</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Diagram -->
+    <section class="arch-section" id="architecture">
+        <div class="arch-container">
+            <div class="section-header">
+                <div class="section-label"><i class="fas fa-sitemap"></i> هيكل المنصة</div>
+                <h2 class="section-title"> <span>طبقة البيانات الموحدة</span></h2>
+                <p class="section-desc">ربط أي مصدر بيانات، تحليل بالذكاء الاصطناعي، تقديم رؤى من خلال واجهات جميلة</p>
+            </div>
+            
+            <!-- Data Sources -->
+            <div class="sources-wrapper">
+                <div class="sources-label">مصادر بيانات المنظمة</div>
+                <div class="sources-grid">
+                    <div class="source-card">
+                        <i class="fas fa-database"></i>
+                        <span>SQL Server</span>
+                        <small>المؤسسات</small>
+                    </div>
+                    <div class="source-card">
+                        <i class="fab fa-aws"></i>
+                        <span>MySQL</span>
+                        <small>السحابة</small>
+                    </div>
+                    <div class="source-card">
+                        <i class="fas fa-server"></i>
+                        <span>Oracle</span>
+                        <small>القديمة</small>
+                    </div>
+                    <!-- <div class="source-card"> -->
+                        <!-- <i class="fas fa-leaf"></i> -->
+                        <!-- <span>PostgreSQL</span> -->
+                        <!-- <small>التحليلات</small> -->
+                    <!-- </div> -->
+                    <div class="source-card">
+                        <i class="fas fa-cloud"></i>
+                        <span>ADO (قادم)</span>
+                        <small>خارجي</small>
+                    </div>
+                    <div class="source-card">
+                        <i class="fas fa-file-excel"></i>
+                        <span>الملفات (قادم)</span>
+                        <small>Excel/CSV</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Connector -->
+            <div class="connector">
+                <div class="connector-lines">
+                    <div class="conn-line"></div>
+                    <div class="conn-line"></div>
+                    <div class="conn-line"></div>
+                    <div class="conn-line"></div>
+                    <div class="conn-line"></div>
+                    <div class="conn-line"></div>
+                </div>
+                <div class="connector-badge">
+                    <i class="fas fa-shield-check"></i>
+                    <span>اتصالات مشفرة آمنة</span>
+                </div>
+            </div>
+            
+            <!-- Platform Core -->
+            <div class="platform-core animate-glow">
+                <div class="core-header">
+                    <h3>⚡ <span>منصة هيدرا إيه آي</span></h3>
+                    <p>الطبقة الوسطية الذكية لجميع احتياجات تحليلات البيانات الخاصة بك</p>
+                </div>
+                <div class="core-features">
+                    <div class="core-feature f1">
+                        <i class="fas fa-brain"></i>
+                        <h4>محرك ذكاء اصطناعي ديناميكي متقدم</h4>
+                        <p>اتصالات نماذج متنوعة</p>
+                    </div>
+                    <div class="core-feature f2">
+                        <i class="fas fa-comments"></i>
+                        <h4>مساعد هيدرا إيه آي</h4>
+                        <p>مساعد مدعوم بالذكاء الاصطناعي</p>
+                    </div>
+                    <div class="core-feature f3">
+                        <i class="fas fa-sitemap"></i>
+                        <h4>تحليل الـ Schema</h4>
+                        <p>اكتشاف تلقائي ورسم خرائط</p>
+                    </div>
+                    <div class="core-feature f4">
+                        <i class="fas fa-bolt"></i>
+                        <h4>محرك الاستعلامات</h4>
+                        <p>تنفيذ محسن</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Connector -->
+            <div class="connector">
+                <div class="connector-lines">
+                    <div class="conn-line" style="background: linear-gradient(180deg, #00d4ff, #10b981);"></div>
+                    <div class="conn-line" style="background: linear-gradient(180deg, #7c3aed, #10b981);"></div>
+                    <div class="conn-line" style="background: linear-gradient(180deg, #00d4ff, #10b981);"></div>
+                </div>
+            </div>
+            
+            <!-- Output Modules -->
+            <div class="outputs-wrapper">
+                <div class="outputs-label">وحدات الإخراج القوية</div>
+                <div class="outputs-grid">
+                    <a href="#modules" class="output-card">
+                        <div class="output-icon"><i class="fas fa-cogs"></i></div>
+                        <h4>الإدارة والتحليل</h4>
+                        <p>إدارة مصادر البيانات وتحليل الـ Schema بالذكاء الاصطناعي</p>
+                        <div class="output-tags">
+                            <span class="output-tag">الاتصالات</span>
+                            <span class="output-tag">اكتشاف ذكي بالذكاء الاصطناعي</span>
+							<span class="output-tag">اقتراحات مصطلحات أعمال وصيغ</span>
+                            <!-- <span class="output-tag">التحكم في الوصول</span> -->
+                        </div>
+                    </a>
+                    <a href="#modules" class="output-card">
+                          <div class="output-icon"><i class="fas fa-cogs"></i></div>
+                        <h4>منشئ لوحات التحكم</h4>
+                        <p>إنشاء لوحات تحكم مدعومة بالذكاء الاصطناعي في دقائق مع تصميم واجهة حديث</p>
+                        <div class="output-tags">
+                            <span class="output-tag">إنشاء بالذكاء الاصطناعي</span>
+                            <span class="output-tag">قوالب</span>
+                            <span class="output-tag">في الوقت الفعلي</span>
+                        </div>
+                    </a>
+                    <a href="#modules" class="output-card">
+                         <div class="output-icon"><i class="fas fa-cogs"></i></div>
+                        <h4>منشئ التقارير (قادم)</h4>
+                        <p>إنشاء تقارير باللغة الطبيعية مع رؤى تلقائية مدعومة بالذكاء الاصطناعي</p>
+                        <div class="output-tags">
+                            <span class="output-tag">تقارير NL</span>
+                            <span class="output-tag">رؤى تلقائية</span>
+                            <span class="output-tag">تصدير متعدد</span>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="flow-section" id="flow">
+        <div class="section-header">
+            <div class="section-label"><i class="fas fa-route"></i> كيف يعمل</div>
+            <h2 class="section-title">من البيانات إلى <span>الرؤى في 4 خطوات</span></h2>
+            <p class="section-desc">رحلة سلسة من ربط بياناتك إلى ذكاء أعمال قابل للتنفيذ</p>
+        </div>
+        <div class="flow-container">
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-num">1</div>
+                    <h4>ربط المصادر</h4>
+                    <p>ربط آمن بأي قاعدة بيانات. يكتشف الذكاء الاصطناعي الـ schemas والعلاقات تلقائيًا.</p>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num">2</div>
+                    <h4>تحليل بالذكاء الاصطناعي</h4>
+                    <p> تحليل متقدم لـ Schema الهيكل، العلاقات، الصيغ وخرائط مصطلحات schema الأعمال</p>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num">3</div>
+                    <h4>البناء في دقائق</h4>
+                    <p>استخدم دردشة الذكاء الاصطناعي، اللغة الطبيعية، قوالب أعمال جاهزة لإنشاء لوحات التحكم والتقارير.</p>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num">4</div>
+                    <h4>المشاركة والتصدير</h4>
+                    <p>نشر لوحات التحكم، تصدير إلى PDF/Excel/Word</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modules -->
+    <section class="modules-section" id="modules">
+        <div class="section-header">
+            <div class="section-label"><i class="fas fa-cubes"></i> وحدات المنصة</div>
+            <h2 class="section-title">ثلاث <span>وحدات قوية</span></h2>
+            <p class="section-desc">كل واحدة مصممة لجوانب محددة من سير عمل التحليلات الخاص بك، تعمل معًا بسلاسة</p>
+        </div>
+        <div class="modules-grid">
+            <div class="module-card admin">
+                <div class="module-icon"><i class="fas fa-cogs"></i></div>
+                <h3>الإدارة والتحليل</h3>
+                <p>الطبقة الأساسية التي تدير جميع اتصالات البيانات، تحليل الـ schema مدعوم بالذكاء الاصطناعي، العلاقات، رسم خرائط مصطلحات الأعمال واقتراحات صيغ schema</p>
+                <div class="module-highlight">
+                    <i class="fas fa-magic"></i>
+                    <span>يكتشف الذكاء الاصطناعي الجداول والعلاقات والسياق الأعمال تلقائيًا</span>
+                </div>
+                <div class="module-features">
+                    <div class="module-feature"><i class="fas fa-check"></i> اتصالات قواعد بيانات متعددة</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> تحليل كامل متقدم لـ Schema بالذكاء الاصطناعي</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> رسم خرائط مصطلحات الأعمال</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> اكتشاف العلاقات تلقائيًا</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> مراقبة صحة الاتصال</div>
+                </div>
+                <button class="module-btn" onclick="document.getElementById('architecture').scrollIntoView({behavior: 'smooth'})">
+                    تعلم المزيد <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+            
+            <div class="module-card dashboard">
+                <div class="module-icon"><i class="fas fa-cogs"></i></div>
+                <h3>منشئ لوحات التحكم</h3>
+                <p>إنشاء لوحات تحكم تفاعلية مذهلة في دقائق. يولد الذكاء الاصطناعي لوحات تحكم كاملة من اللغة الطبيعية، أو استخدم تخطيط تلقائي لتصميم أفضل.</p>
+                <div class="module-highlight">
+                    <i class="fas fa-bolt"></i>
+                    <span>إنشاء لوحات تحكم كاملة في أقل من 5 دقائق</span>
+                </div>
+                <div class="module-features">
+                    <div class="module-feature"><i class="fas fa-check"></i> إنشاء لوحات تحكم بالذكاء الاصطناعي</div>
+                    <!-- <div class="module-feature"><i class="fas fa-check"></i> سحب وإسقاط المكونات</div> -->
+                    <div class="module-feature"><i class="fas fa-check"></i>قوالب لوحات تحكم تنفيذية</div>
+					<div class="module-feature"><i class="fas fa-check"></i>قوالب لوحات تحكم الأداء</div>
+					<div class="module-feature"><i class="fas fa-check"></i>قوالب لوحات تحكم المالية</div>
+					<div class="module-feature"><i class="fas fa-check"></i>قوالب لوحات تحكم المبيعات</div>
+					<div class="module-feature"><i class="fas fa-check"></i>قوالب تحليلات تفصيلية</div>
+                    <!-- <div class="module-feature"><i class="fas fa-check"></i> تحديثات بيانات في الوقت الفعلي</div> -->
+                    <!-- <div class="module-feature"><i class="fas fa-check"></i> فلاتر تفاعلية وتفصيل أعمق (قادم)</div> -->
+                </div>
+                <button class="module-btn" onclick="document.getElementById('architecture').scrollIntoView({behavior: 'smooth'})">
+                    تعلم المزيد <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+            
+            <div class="module-card report">
+                 <div class="module-icon"><i class="fas fa-cogs"></i></div>
+                <h3>منشئ التقارير (قادم)</h3>
+                <p>إنشاء تقارير شاملة باستخدام اللغة الطبيعية. يكتب الذكاء الاصطناعي ملخصات تنفيذية، يكتشف الرؤى، ويصمم وثائق مهنية.</p>
+                <div class="module-highlight">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <span>رؤى وملخصات تنفيذية مولدة بالذكاء الاصطناعي</span>
+                </div>
+                <div class="module-features">
+                    <div class="module-feature"><i class="fas fa-check"></i> تقارير باللغة الطبيعية</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> رؤى مولدة تلقائيًا</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> تصدير إلى PDF/Excel/Word</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> تسليم مجدول</div>
+                    <div class="module-feature"><i class="fas fa-check"></i> مكتبة القوالب</div>
+                </div>
+                <button class="module-btn" onclick="document.getElementById('architecture').scrollIntoView({behavior: 'smooth'})">
+                    تعلم المزيد <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Security Section -->
+    <section class="security-section" id="security">
+        <div class="security-container">
+            <div class="security-content">
+                <h2>أمان من فئة المؤسسات</h2>
+                <p>أمان بياناتك هو أولويتنا. تم بناء هيدرا إيه آي بمعايير أمان المؤسسات، مما يضمن حماية بيانات أعمالك الحساسة في كل طبقة.</p>
+                <!-- <div class="security-badges"> -->
+                    <!-- <div class="security-badge"><i class="fas fa-lock"></i> تشفير من طرف إلى طرف</div> -->
+                    <!-- <div class="security-badge"><i class="fas fa-user-shield"></i> الوصول بناءً على الأدوار (قادم)</div> -->
+                    <!-- <div class="security-badge"><i class="fas fa-clipboard-list"></i> مسارات التدقيق</div> -->
+                    <!-- <div class="security-badge"><i class="fas fa-key"></i> تكامل SSO</div> -->
+                    <!-- <div class="security-badge"><i class="fas fa-server"></i> خيار داخلي</div> -->
+                    <!-- <div class="security-badge"><i class="fas fa-file-contract"></i> حوكمة البيانات</div> -->
+                <!-- </div> -->
+            </div>
+            <div class="security-visual">
+                <div class="security-icon-large">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="cta-content">
+            <h2>جاهز لـ <span>تحويل بياناتك؟</span></h2>
+            <p>انضم إلى المنظمات المتقدمة التي تستخدم هيدرا إيه آي لفتح الإمكانات الكاملة لبياناتها. بناء لوحات تحكم في دقائق، إنشاء تقارير بالذكاء الاصطناعي، واتخاذ قرارات بثقة.</p>
+            <div class="cta-buttons">
+                <a href="#hero" class="btn btn-primary">
+                    <i class="fas fa-play"></i>
+                    <span>ابدأ الآن</span>
+                </a>
+                <a href="#ai-features" class="btn btn-outline">
+                    <i class="fas fa-sparkles"></i>
+                    استكشاف ميزات الذكاء الاصطناعي
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">
+                    <div class="footer-logo-icon"><i class="fas fa-bolt-lightning"></i></div>
+                    <span>هيدرا إيه آي</span>
+                </div>
+                <p>منصة ذكاء أعمال المؤسسات مدعومة بالذكاء الاصطناعي. حوِّل بياناتك إلى رؤى قابلة للتنفيذ في دقائق.</p>
+            </div>
+            <div class="footer-links-group">
+                <div class="footer-col">
+                    <h4>المنصة</h4>
+                    <a href="#ai-features">ميزات الذكاء الاصطناعي</a>
+                    <a href="#architecture">الهيكل</a>
+                    <a href="#modules">الوحدات</a>
+                    <a href="#security">الأمان</a>
+                </div>
+                <div class="footer-col">
+                    <h4>الوحدات</h4>
+                    <a href="#modules">الإدارة والتحليل</a>
+                    <a href="#modules">منشئ لوحات التحكم</a>
+                    <a href="#modules">منشئ التقارير</a>
+                    <a href="#ai-features">مساعد الذكاء الاصطناعي</a>
+                </div>
+                <div class="footer-col">
+                    <h4>الموارد</h4>
+                    <a href="#flow">كيف يعمل</a>
+                    <a href="#benefits">من يستفيد</a>
+                    <a href="#hero">نظرة عامة</a>
+                </div>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>© 2026 هيدرا إيه آي. حل ذكاء أعمال المؤسسات. .</p>
+        </div>
+    </footer>
+
+    <!-- Smooth Scroll Script -->
+    <script>
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Active nav link on scroll
+        window.addEventListener('scroll', () => {
+            const sections = document.querySelectorAll('section[id]');
+            const navLinks = document.querySelectorAll('.nav-links a');
+            
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop - 100;
+                if (window.scrollY >= sectionTop) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === `#${current}`) {
+                    link.classList.add('active');
+                }
+            });
+        });
+
+        // Animate stats on scroll
+        const observerOptions = {
+            threshold: 0.5,
+            rootMargin: '0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.animation = 'countUp 0.6s ease-out forwards';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.hero-stat-value, .metric-value').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

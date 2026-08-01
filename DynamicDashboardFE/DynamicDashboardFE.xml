@@ -1,0 +1,202 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>DynamicDashboardFE</name>
+    </assembly>
+    <members>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DBMetaDataV2.ClearCacheAsync">
+            <summary>
+            Clears all cache - for testing purposes
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.TestDashboard.LoadDatasetComparison(System.Int32)">
+            <summary>
+            Loads dataset comparison data for visualization with improved error handling
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnArrowKey(System.String,System.Boolean,System.Boolean)">
+            <summary>
+            Handles arrow key press for moving/resizing components
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.MoveComponentWithKeyboard(System.String,System.Int32)">
+            <summary>
+            Moves the selected component in the specified direction
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ResizeComponentWithKeyboard(System.String,System.Int32)">
+            <summary>
+            Resizes the selected component in the specified direction
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnTabKey(System.Boolean)">
+            <summary>
+            Cycles to the next component (Tab key)
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnEscapeKey">
+            <summary>
+            Handles Escape key - deselect component
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnDeleteKey">
+            <summary>
+            Handles Delete key - remove selected component
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnDuplicateKey">
+            <summary>
+            Handles Ctrl+D - duplicate selected component
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnSaveKey">
+            <summary>
+            Handles Ctrl+S - save dashboard
+            </summary>
+        </member>
+        <member name="T:DynamicDashboardFE.Pages.User.Dashboard">
+            <summary>
+            Enhanced Natural Language Query component that allows users to ask questions in natural language
+            and receive query results through a multi-step workflow.
+            </summary>
+        </member>
+        <member name="T:DynamicDashboardFE.Pages.User.Dashboard.QueryStep">
+            <summary>
+            Defines the current step in the query workflow.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.OnInitializedAsync">
+            <summary>
+            Initializes the component, loads configuration settings, available databases, and example questions.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.UpdateAmbiguity(System.String,System.String)">
+            <summary>
+            Updates an ambiguity resolution with the selected value.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.UpdateParameter(System.String,System.String)">
+            <summary>
+            Updates a parameter with the selected value.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.ConfirmSqlExplanation">
+            <summary>
+            Modified version of ConfirmSqlExplanation to include celebration animation.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.OnDatabaseSelectionChanged(Microsoft.AspNetCore.Components.ChangeEventArgs)">
+            <summary>
+            Handles database selection change.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.GenerateSqlWithExplanation">
+            <summary>
+            Generates SQL with explanation
+            </summary>
+            <summary>
+            Generates SQL with explanation
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.ShowUnrelatedContent(System.String,System.Collections.Generic.List{System.String},System.Collections.Generic.List{System.String})">
+            <summary>
+            Shows dialog for completely unrelated content with suggested schema-based topics and questions
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.ShowPartiallyUnrelatedContent(System.String,System.Collections.Generic.List{System.String})">
+            <summary>
+            Shows message for partially unrelated content
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.GetSchemaBasedQuestions">
+            <summary>
+            Generates questions based on the database schema
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.AnalyzeQuestion">
+            <summary>
+            Analyzes user question
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.HandleErrorDismiss">
+            <summary>
+            Dismisses any displayed error messages.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.LoadExampleQuestions">
+            <summary>
+            Loads example questions from the API for the selected database.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.FormatColumnName(System.String)">
+            <summary>
+            Formats column names for display by converting from snake_case or camelCase to Title Case.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.FormatValue(System.Object)">
+            <summary>
+            Formats field values for display based on their data type.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.GetResultColumns(System.Collections.Generic.List{System.Collections.Generic.Dictionary{System.String,System.Object}})">
+            <summary>
+            Gets the column names from the query results.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.GetPagedResults(System.Collections.Generic.List{System.Collections.Generic.Dictionary{System.String,System.Object}})">
+            <summary>
+            Gets a page of results based on the current page and page size.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.PreviousPage">
+            <summary>
+            Navigates to the previous page of results.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.NextPage">
+            <summary>
+            Navigates to the next page of results.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.GoToPage(System.Int32)">
+            <summary>
+            Navigates to a specific page of results.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.ExportToExcel">
+            <summary>
+            Exports the query results to an Excel file.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.OnKeyPress(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs)">
+            <summary>
+            Handles key press events, particularly the Enter key to submit questions.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.UseExample(System.String)">
+            <summary>
+            Uses an example question as the user's question and initiates analysis.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.Dashboard.ResetWorkflow">
+            <summary>
+            Resets the workflow to start a new query.
+            </summary>
+        </member>
+        <member name="T:DynamicDashboardFE.Pages.User.Dashboard.ExportRequest">
+            <summary>
+            Internal class for exporting data to Excel.
+            </summary>
+        </member>
+        <member name="T:DynamicDashboardFE.Pages.User.Dashboard.SqlExecutionRequest">
+            <summary>
+            Request model for executing SQL queries.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Components.Dashboard.TemplateIcons.GetTemplateIcon(System.String,System.String)">
+            <summary>
+            Returns SVG icon markup for a given template category/id
+            </summary>
+        </member>
+    </members>
+</doc>

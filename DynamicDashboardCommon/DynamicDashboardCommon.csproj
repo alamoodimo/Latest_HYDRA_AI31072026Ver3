@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild> -->
+    <DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
+  </PropertyGroup>
+
+
+  <Target Name="CopyDocumentation" AfterTargets="Build">
+    <Copy SourceFiles="$(DocumentationFile)" DestinationFolder="..\SharedDocs\SolutionDocumentations" />
+  </Target>
+
+
+  <ItemGroup>
+    <Content Include="Templates\dashboard-templates.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <PackageReference Include="ObjectsComparer" Version="1.4.1" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <Folder Include="Models\DynamicDashboard\" />
+    <Folder Include="Models\NewFolder\" />
+  </ItemGroup>
+
+</Project>

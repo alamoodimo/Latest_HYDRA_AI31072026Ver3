@@ -1,0 +1,1368 @@
+﻿@page "/dashboard/viewer/{DashboardId:int}"
+@page "/dashboard/viewer"
+@using DynamicDashboardCommon.Models
+@using DynamicDashboardCommon.Enums
+@using System.Text.Json
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject IToastService ToastService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>@dashboardTitle - Dashboard Viewer</PageTitle>
+
+<div class="dashboard-viewer @themeClass">
+    @if (isLoading)
+    {
+        <div class="loading-overlay">
+            <div class="loading-content">
+                <div class="spinner-large"></div>
+                <h3>Loading Dashboard...</h3>
+                <p>Fetching data from backend...</p>
+            </div>
+        </div>
+    }
+    else if (dashboard == null)
+    {
+        <div class="error-state">
+            <div class="error-content">
+                <i class="fas fa-exclamation-triangle"></i>
+                <h2>Dashboard Not Found</h2>
+                <p>The dashboard you're looking for doesn't exist or you don't have permission to view it.</p>
+                <button class="btn-primary" @onclick='() => NavigationManager.NavigateTo("/marketplace")'>
+                    <i class="fas fa-arrow-left me-2"></i>Back to Marketplace
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Header -->
+        <div class="viewer-header">
+            <div class="header-left">
+                <button class="btn-back" @onclick='() => NavigationManager.NavigateTo("/marketplace")'>
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            </div>
+
+            <div class="header-center">
+                <h1 class="dashboard-title">@dashboard.Title</h1>
+                @if (!string.IsNullOrEmpty(dashboard.Description))
+                {
+                    <p class="dashboard-subtitle">@dashboard.Description</p>
+                }
+            </div>
+
+            <div class="header-right">
+                <!-- Date Filter -->
+                <div class="date-filter">
+                    <i class="fas fa-calendar-alt"></i>
+                    <select @bind="selectedDateRange" class="date-select">
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                        <option value="90d">Last 90 Days</option>
+                    </select>
+                </div>
+
+                <!-- Actions -->
+                <button class="btn-action" @onclick="RefreshDashboard" disabled="@isRefreshing">
+                    <i class="fas fa-sync-alt @(isRefreshing ? "fa-spin" : "")"></i>
+                </button>
+
+                <button class="btn-action" @onclick="ToggleFullscreen">
+                    <i class="fas fa-expand"></i>
+                </button>
+
+                <button class="btn-action" @onclick='() => NavigationManager.NavigateTo($"/dashboard/builder/{DashboardId}")'>
+                    <i class="fas fa-edit"></i>
+                </button>
+
+                <button class="btn-primary-action" @onclick="ShareDashboard">
+                    <i class="fas fa-share me-1"></i>Share
+                </button>
+
+                <!-- More Filters -->
+                <button class="btn-action" @onclick="ToggleFilters" title="Toggle Filters">
+                    <i class="fas fa-filter"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Filters Panel -->
+        @if (showFilters && dashboardFilters.Any())
+        {
+            <div class="filters-panel">
+                @foreach (var filter in dashboardFilters)
+                {
+                    <div class="filter-item">
+                        <label>@filter.DisplayName:</label>
+                        <select @bind="filter.CurrentValue">
+                            <option value="">All</option>
+                            @foreach (var option in GetFilterOptions(filter.Options))
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                    </div>
+                }
+                <button class="btn-reset" @onclick="ResetFilters">
+                    <i class="fas fa-times-circle me-1"></i>Reset
+                </button>
+            </div>
+        }
+
+        <!-- Dashboard Content -->
+        <div class="dashboard-content">
+            @if (!dashboard.Components.Any())
+            {
+                <!-- Empty State -->
+                <div class="empty-dashboard">
+                    <div class="empty-content">
+                        <i class="fas fa-chart-line"></i>
+                        <h3>No Components Yet</h3>
+                        <p>This dashboard doesn't have any components. Add some to see your data!</p>
+                        <button class="btn-primary" @onclick='() => NavigationManager.NavigateTo($"/dashboard/builder/{DashboardId}")'>
+                            <i class="fas fa-plus me-2"></i>Add Components
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                var kpiComponents = dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Number && c.IsVisible).ToList();
+
+                <!-- KPI Cards Row -->
+                @if (kpiComponents.Any())
+                {
+                    <div class="kpi-row">
+                        @foreach (var kpi in kpiComponents)
+                        {
+                            <div class="kpi-card @GetKPIColorClass(kpi.ComponentID)">
+                                <div class="kpi-header">
+                                    <span class="kpi-label">@kpi.Title.ToUpper()</span>
+                                    <i class="kpi-icon fas fa-@GetComponentIcon(kpi.DataViewingTypeID)"></i>
+                                </div>
+                                <div class="kpi-body">
+                                    @if (IsComponentLoading(kpi.ComponentID))
+                                    {
+                                        <div class="spinner-border spinner-border-sm"></div>
+                                    }
+                                    else if (componentErrors.ContainsKey(kpi.ComponentID))
+                                    {
+                                        <h2 class="kpi-value">--</h2>
+                                        <span class="kpi-error">Error</span>
+                                    }
+                                    else
+                                    {
+                                        <h2 class="kpi-value">@GetKPIValue(kpi.ComponentID, kpi)</h2>
+                                        @* <span class="kpi-change positive">
+                                            <i class="fas fa-arrow-up"></i>
+                                            --
+                                        </span>
+                                        <span class="kpi-period">vs last period</span> *@
+                                    }
+                                </div>
+                                <div class="kpi-sparkline" id="sparkline-@kpi.ComponentID"></div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <!-- Charts Grid -->
+                var chartComponents = dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart && c.IsVisible).ToList();
+
+                @if (chartComponents.Any())
+                {
+                    <div class="charts-grid">
+                        @foreach (var chart in chartComponents)
+                        {
+                            var chartClass = chart == chartComponents.First() ? "chart-large" : "chart-medium";
+                            <div class="chart-card @chartClass">
+                                <div class="chart-header">
+                                    <div class="chart-title-section">
+                                        <h3>@chart.Title</h3>
+                                        @if (!string.IsNullOrEmpty(chart.Description))
+                                        {
+                                            <p class="chart-subtitle">@chart.Description</p>
+                                        }
+                                    </div>
+                                    <div class="chart-actions">
+                                        @if (IsComponentLoading(chart.ComponentID))
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn-icon" @onclick="() => RefreshComponent(chart)">
+                                                <i class="fas fa-sync-alt"></i>
+                                            </button>
+
+                                            <div style="position: relative;">
+                                                <button class="btn-icon" @onclick="() => ToggleChartMenu(chart.ComponentID)">
+                                                    <i class="fas fa-ellipsis-v"></i>
+                                                </button>
+
+                                                @if (activeChartMenu == chart.ComponentID)
+                                                {
+                                                    <div style="position: absolute; right: 0; top: 100%; margin-top: 8px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); min-width: 160px; z-index: 1000;">
+                                                        <div style="padding: 8px 0;">
+                                                            <button @onclick='() => ChangeChartType(chart.ComponentID, "bar")' style="width: 100%; padding: 8px 12px; border: none; background: none; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                                                <i class="fas fa-chart-bar" style="width: 16px;"></i> Bar
+                                                            </button>
+                                                            <button @onclick='() => ChangeChartType(chart.ComponentID, "line")' style="width: 100%; padding: 8px 12px; border: none; background: none; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                                                <i class="fas fa-chart-line" style="width: 16px;"></i> Line
+                                                            </button>
+                                                            <button @onclick='() => ChangeChartType(chart.ComponentID, "area")' style="width: 100%; padding: 8px 12px; border: none; background: none; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                                                <i class="fas fa-chart-area" style="width: 16px;"></i> Area
+                                                            </button>
+                                                            <button @onclick='() => ChangeChartType(chart.ComponentID, "pie")' style="width: 100%; padding: 8px 12px; border: none; background: none; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                                                <i class="fas fa-chart-pie" style="width: 16px;"></i> Pie
+                                                            </button>
+                                                            <button @onclick='() => ChangeChartType(chart.ComponentID, "donut")' style="width: 100%; padding: 8px 12px; border: none; background: none; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                                                <i class="fas fa-ring" style="width: 16px;"></i> Donut
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                                <div id="chart-@chart.ComponentID" style="height: @(chart == chartComponents.First() ? "350px" : "300px");"></div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <!-- Table Components -->
+                var tableComponents = dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Table && c.IsVisible).ToList();
+
+                @if (tableComponents.Any())
+                {
+                    @foreach (var table in tableComponents)
+                    {
+                        <div class="table-card">
+                            <div class="table-header">
+                                <div class="table-title-section">
+                                    <h3>@table.Title</h3>
+                                    @if (!string.IsNullOrEmpty(table.Description))
+                                    {
+                                        <p class="table-subtitle">@table.Description</p>
+                                    }
+                                </div>
+                                <div class="table-actions">
+                                    <div class="search-box">
+                                        <i class="fas fa-search"></i>
+                                        <input type="text" placeholder="Search..." @bind="searchQuery" @bind:event="oninput" />
+                                    </div>
+                                    @if (IsComponentLoading(table.ComponentID))
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn-icon" @onclick="() => RefreshComponent(table)">
+                                            <i class="fas fa-sync-alt me-1"></i>Refresh
+                                        </button>
+                                        <button class="btn-icon" @onclick="() => ExportTableData(table.ComponentID)">
+                                            <i class="fas fa-download me-1"></i>Export
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="table-container">
+                                @if (componentErrors.ContainsKey(table.ComponentID))
+                                {
+                                    <div class="component-error">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        <p>@componentErrors[table.ComponentID]</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @RenderTableWithPagination(table.ComponentID)
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int DashboardId { get; set; }
+
+    private Dictionary<int, int> tableCurrentPage = new Dictionary<int, int>();
+    private int tablePageSize = 10;
+
+    private Dictionary<int, string> chartTypes = new Dictionary<int, string>();
+    private int? activeChartMenu = null;
+
+    // State
+    private DashboardModel dashboard;
+    private string dashboardTitle = "Dashboard";
+    private string themeClass = "light";
+    private bool isLoading = true;
+    private bool isRefreshing = false;
+    private bool showFilters = false;
+    private bool isFullscreen = false;
+    private string selectedDateRange = "30d";
+    private string searchQuery = "";
+
+
+    // Data Storage
+    private Dictionary<int, bool> isComponentLoading = new Dictionary<int, bool>();
+    private Dictionary<int, List<Dictionary<string, object>>> componentData = new Dictionary<int, List<Dictionary<string, object>>>();
+    private Dictionary<int, string> componentErrors = new Dictionary<int, string>();
+    private List<ComponentParameter> dashboardFilters = new List<ComponentParameter>();
+
+    // Color rotation for KPIs
+    private string[] kpiColors = new[] { "kpi-blue", "kpi-green", "kpi-purple", "kpi-orange", "kpi-teal" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboard();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Charts now render after data loads in LoadAllComponentsData
+        // No need to render here
+    }
+
+    private async Task LoadDashboard()
+    {
+        try
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            if (DashboardId > 0)
+            {
+                // Load dashboard from backend API
+                dashboard = await Http.GetFromJsonAsync<DashboardModel>($"api/dashboard/{DashboardId}");
+
+                if (dashboard != null)
+                {
+                    dashboardTitle = dashboard.Title ?? "Dashboard";
+
+                    // Extract dashboard-level filters
+                    dashboardFilters = dashboard.Components
+                        .Where(c => c.Parameters != null)
+                        .SelectMany(c => c.Parameters)
+                        .Where(p => p.IsVisible)
+                        .GroupBy(p => p.Name)
+                        .Select(g => g.First())
+                        .ToList();
+
+                    // Initialize loading states
+                    foreach (var component in dashboard.Components)
+                    {
+                        isComponentLoading[component.ComponentID] = false;
+                        componentErrors.Remove(component.ComponentID);
+                    }
+
+                    // Load component data
+                    await LoadAllComponentsData();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dashboard: {ex.Message}");
+            ToastService.ShowError($"Error loading dashboard: {ex.Message}");
+            dashboard = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAllComponentsData()
+    {
+        if (dashboard == null || !dashboard.Components.Any())
+            return;
+
+        try
+        {
+            var tasks = dashboard.Components
+                .Where(c => c.IsVisible && c.DataViewingTypeID != (int)DataViewingTypeEnum.Label)
+                .Select(c => LoadComponentDataAsync(c));
+
+            await Task.WhenAll(tasks);
+
+            // ⚡ THESE 3 LINES ARE CRITICAL
+            StateHasChanged();
+            await Task.Delay(200);
+            await RenderAllCharts();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading components data: {ex.Message}");
+        }
+    }
+
+    private async Task LoadComponentDataAsync(DashboardComponent component)
+    {
+        if (string.IsNullOrEmpty(component.QueryText))
+        {
+            componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+            return;
+        }
+
+        try
+        {
+            isComponentLoading[component.ComponentID] = true;
+            componentErrors.Remove(component.ComponentID);
+            StateHasChanged();
+
+            // Create request payload
+            var request = new SqlExecutionRequest
+            {
+                OriginalQuestion = "",
+                DatabaseId = dashboard.DatabaseID,
+                Sql = component.QueryText
+            };
+
+            // Execute query via backend API
+            var response = await Http.PostAsJsonAsync("api/query/execute", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<QueryExecutionResponse>();
+
+                if (result != null && result.Success && result.Results != null)
+                {
+                    componentData[component.ComponentID] = result.Results;
+                    Console.WriteLine($"Component {component.ComponentID} loaded with {result.Results.Count} rows");
+                }
+                else
+                {
+                    componentErrors[component.ComponentID] = "No data available";
+                    componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+                }
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                componentErrors[component.ComponentID] = "No data available";
+                componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+                Console.WriteLine($"Error loading component {component.ComponentID}: {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception loading component {component.ComponentID}: {ex.Message}");
+            componentErrors[component.ComponentID] = ex.Message;
+            componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+        }
+        finally
+        {
+            isComponentLoading[component.ComponentID] = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshDashboard()
+    {
+        if (isRefreshing) return;
+
+        try
+        {
+            isRefreshing = true;
+            StateHasChanged();
+
+            await LoadAllComponentsData();
+            await RenderAllCharts();
+
+            ToastService.ShowSuccess("Dashboard refreshed successfully");
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshComponent(DashboardComponent component)
+    {
+        await LoadComponentDataAsync(component);
+
+        // Re-render chart if it's a chart component
+        if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+        {
+            await RenderChart(component);
+        }
+
+        ToastService.ShowSuccess($"{component.Title} refreshed");
+    }
+
+    private RenderFragment RenderTableWithPagination(int componentId)
+    {
+        var data = GetComponentData(componentId);
+
+        return builder =>
+        {
+            if (data == null || !data.Any())
+            {
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "text-center py-4 text-muted");
+                builder.AddContent(2, "No data available");
+                builder.CloseElement();
+                return;
+            }
+
+            if (!tableCurrentPage.ContainsKey(componentId))
+                tableCurrentPage[componentId] = 1;
+
+            var currentPage = tableCurrentPage[componentId];
+            var totalPages = (int)Math.Ceiling((double)data.Count / tablePageSize);
+            var pagedData = data.Skip((currentPage - 1) * tablePageSize).Take(tablePageSize).ToList();
+            var columns = data[0].Keys.ToList();
+
+            // Table
+            builder.OpenElement(3, "div");
+            builder.AddAttribute(4, "class", "table-responsive");
+
+            builder.OpenElement(5, "table");
+            builder.AddAttribute(6, "class", "table table-hover");
+
+            // Header
+            builder.OpenElement(7, "thead");
+            builder.OpenElement(8, "tr");
+            foreach (var col in columns)
+            {
+                builder.OpenElement(9, "th");
+                builder.AddContent(10, col);
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+
+            // Body
+            builder.OpenElement(11, "tbody");
+            foreach (var row in pagedData)
+            {
+                builder.OpenElement(12, "tr");
+                foreach (var col in columns)
+                {
+                    builder.OpenElement(13, "td");
+                    builder.AddContent(14, FormatValue(row[col]));
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+            builder.CloseElement();
+
+            // Pagination
+            builder.OpenElement(15, "div");
+            builder.AddAttribute(16, "class", "d-flex justify-content-between align-items-center mt-2 p-2 border-top");
+
+            builder.OpenElement(17, "small");
+            builder.AddAttribute(18, "class", "text-muted");
+            builder.AddContent(19, $"Page {currentPage} of {totalPages} ({data.Count} total records)");
+            builder.CloseElement();
+
+            builder.OpenElement(20, "div");
+            builder.AddAttribute(21, "class", "btn-group btn-group-sm");
+
+            // Previous button
+            builder.OpenElement(22, "button");
+            builder.AddAttribute(23, "class", "btn btn-outline-secondary");
+            builder.AddAttribute(24, "disabled", currentPage == 1);
+            builder.AddAttribute(25, "onclick", EventCallback.Factory.Create(this, () =>
+            {
+                tableCurrentPage[componentId] = Math.Max(1, currentPage - 1);
+                StateHasChanged();
+            }));
+            builder.AddContent(26, "‹ Prev");
+            builder.CloseElement();
+
+            // Next button
+            builder.OpenElement(27, "button");
+            builder.AddAttribute(28, "class", "btn btn-outline-secondary");
+            builder.AddAttribute(29, "disabled", currentPage == totalPages);
+            builder.AddAttribute(30, "onclick", EventCallback.Factory.Create(this, () =>
+            {
+                tableCurrentPage[componentId] = Math.Min(totalPages, currentPage + 1);
+                StateHasChanged();
+            }));
+            builder.AddContent(31, "Next ›");
+            builder.CloseElement();
+
+            builder.CloseElement(); // btn-group
+            builder.CloseElement(); // pagination div
+        };
+    }
+
+    private async Task ApplyFilters()
+    {
+        // Apply filter values across all components
+        foreach (var component in dashboard.Components)
+        {
+            if (component.Parameters != null)
+            {
+                foreach (var param in component.Parameters)
+                {
+                    var filter = dashboardFilters.FirstOrDefault(f => f.Name == param.Name);
+                    if (filter != null)
+                    {
+                        param.CurrentValue = filter.CurrentValue;
+                    }
+                }
+            }
+        }
+
+        await RefreshDashboard();
+    }
+
+    private async Task ResetFilters()
+    {
+        foreach (var filter in dashboardFilters)
+        {
+            filter.CurrentValue = filter.DefaultValue;
+        }
+        await ApplyFilters();
+    }
+
+    private void ToggleFilters()
+    {
+        showFilters = !showFilters;
+    }
+
+    private async Task ToggleFullscreen()
+    {
+        try
+        {
+            if (!isFullscreen)
+            {
+                await JSRuntime.InvokeVoidAsync("enterFullscreen");
+                isFullscreen = true;
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("exitFullscreen");
+                isFullscreen = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fullscreen error: {ex.Message}");
+            ToastService.ShowError("Fullscreen not supported in this browser");
+        }
+    }
+
+    private void ShareDashboard()
+    {
+        ToastService.ShowInfo("Share functionality coming soon");
+    }
+
+    private void ExportTableData(int componentId)
+    {
+        ToastService.ShowInfo("Export functionality coming soon");
+    }
+
+    private bool IsComponentLoading(int componentId)
+    {
+        return isComponentLoading.ContainsKey(componentId) && isComponentLoading[componentId];
+    }
+
+    private List<string> GetFilterOptions(string optionsJson)
+    {
+        if (string.IsNullOrEmpty(optionsJson))
+            return new List<string>();
+
+        try
+        {
+            // Options stored as JSON array: ["Option1", "Option2", "Option3"]
+            return JsonSerializer.Deserialize<List<string>>(optionsJson) ?? new List<string>();
+        }
+        catch
+        {
+            // If not JSON, split by comma
+            return optionsJson.Split(',').Select(o => o.Trim()).ToList();
+        }
+    }
+
+    private string GetKPIValue(int componentId,DashboardComponent component)
+    {
+        if (!componentData.ContainsKey(componentId) || !componentData[componentId].Any())
+            return "--";
+            
+        var data = componentData[componentId];
+        var value = data[0].Values.FirstOrDefault();
+
+        return FormatNumericValue(value, component);
+    }
+
+    private string GetKPIColorClass(int componentId)
+    {
+        var index = dashboard.Components
+            .Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Number)
+            .ToList()
+            .FindIndex(c => c.ComponentID == componentId);
+
+        return kpiColors[index % kpiColors.Length];
+    }
+
+    private string GetComponentIcon(int dataViewingTypeId)
+    {
+        return dataViewingTypeId switch
+        {
+            (int)DataViewingTypeEnum.Chart => "chart-bar",
+            (int)DataViewingTypeEnum.Table => "table",
+            (int)DataViewingTypeEnum.Number => "hashtag",
+            (int)DataViewingTypeEnum.Card => "id-card",
+            (int)DataViewingTypeEnum.Label => "font",
+            _ => "cube"
+        };
+    }
+
+    private bool IsNumeric(string str)
+    {
+        if (string.IsNullOrWhiteSpace(str)) return false;
+
+        return double.TryParse(str.Trim(), out _);
+    }
+
+    private string FormatValue(object value)
+    {
+        if (value == null) return "";
+
+
+
+        if (value is decimal decValue)
+        {
+            return decValue == Math.Floor(decValue) ? decValue.ToString("N0") : decValue.ToString("N2");
+        }
+
+        if (value is double dblValue)
+        {
+            return dblValue == Math.Floor(dblValue) ? dblValue.ToString("N0") : dblValue.ToString("N2");
+        }
+
+        if (value is float fltValue)
+        {
+            return fltValue == Math.Floor(fltValue) ? fltValue.ToString("N0") : fltValue.ToString("N2");
+        }
+
+        if (value is int || value is long || value is short || value is byte)
+        {
+            return Convert.ToInt64(value).ToString("N0");
+        }
+
+        if (value != null && !string.IsNullOrEmpty(value.ToString()))
+        {
+            if (IsNumeric(value.ToString()))
+            {
+                double dblParsedValue = double.Parse(value.ToString());
+                if (Math.Floor(dblParsedValue) == dblParsedValue)
+                {
+                    return dblParsedValue.ToString("N0");
+                }
+                else
+                {
+                    return dblParsedValue.ToString("N2");
+                }
+            }
+
+        }
+
+
+        return value.ToString();
+    }
+
+    private string FormatNumericValue(object value, DashboardComponent component)
+    {
+        if (value == null)
+            return "N/A";
+
+        // Try to parse as decimal
+        if (!decimal.TryParse(value.ToString(), out decimal numericValue))
+            return value.ToString();
+
+        // Check if it's a percentage (rate, percentage, ratio)
+        if (IsPercentageValue(component))
+        {
+            // If value is already 0-100, just add %
+            if (numericValue <= 100)
+                return $"{numericValue:N2}%";
+            // If value is decimal (0.00-1.00), multiply by 100
+            else if (numericValue < 1)
+                return $"{(numericValue * 100):N2}%";
+            else
+                return $"{numericValue:N2}%";
+        }
+
+        // Check if it's currency
+        if (IsCurrencyValue(component))
+        {
+            return numericValue.ToString("C2"); // $500.00
+        }
+
+        // Check if it's a time value
+        if (IsTimeValue(component))
+        {
+            return FormatTimeValue(numericValue, component);
+        }
+
+        // Check if it's a whole number (count/ID)
+        if (IsWholeNumber(component) || numericValue == Math.Floor(numericValue))
+        {
+            return numericValue.ToString("N0"); // 1,234
+        }
+
+        // Default: 2 decimal places
+        return numericValue.ToString("N2"); // 1,234.56
+    }
+
+    private bool IsPercentageValue(DashboardComponent component)
+    {
+        var text = $"{component.Title} {component.Description} {component.QueryIntent}".ToLower();
+        return text.Contains("rate") ||
+               text.Contains("percentage") ||
+               text.Contains("percent") ||
+               text.Contains("%") ||
+               text.Contains("ratio");
+    }
+
+    private bool IsCurrencyValue(DashboardComponent component)
+    {
+        var text = $"{component.Title} {component.Description} {component.QueryIntent}".ToLower();
+        return text.Contains("amount") ||
+               text.Contains("revenue") ||
+               text.Contains("cost") ||
+               text.Contains("price") ||
+               text.Contains("fine") ||
+               text.Contains("payment") ||
+               text.Contains("total revenue") ||
+               text.Contains("salary");
+    }
+
+    private bool IsTimeValue(DashboardComponent component)
+    {
+        var text = $"{component.Title} {component.Description}".ToLower();
+        return text.Contains("time") ||
+               text.Contains("duration") ||
+               text.Contains("day") ||
+               text.Contains("hour") ||
+               text.Contains("minute");
+    }
+
+    private bool IsWholeNumber(DashboardComponent component)
+    {
+        var text = $"{component.Title} {component.Description} {component.QueryIntent}".ToLower();
+        return text.Contains("count") ||
+               text.Contains("total") ||
+               text.Contains("number of") ||
+               text.Contains("active") ||
+               text.Contains("pending") ||
+               text.Contains("camera") ||
+               text.Contains("incident");
+    }
+
+    private string FormatTimeValue(decimal value, DashboardComponent component)
+    {
+        var text = $"{component.Title} {component.Description}".ToLower();
+
+        if (text.Contains("day"))
+        {
+            return value == 1 ? "1 day" : $"{value:N0} days";
+        }
+        else if (text.Contains("hour"))
+        {
+            return value == 1 ? "1 hour" : $"{value:N0} hours";
+        }
+        else if (text.Contains("minute"))
+        {
+            return value == 1 ? "1 min" : $"{value:N0} mins";
+        }
+
+        return $"{value:N2}";
+    }
+
+    private RenderFragment RenderTable(int componentId)
+    {
+        var data = componentData.ContainsKey(componentId) ? componentData[componentId] : new List<Dictionary<string, object>>();
+
+        return builder =>
+        {
+            if (!data.Any())
+            {
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "no-data");
+                builder.AddContent(2, "No data available");
+                builder.CloseElement();
+                return;
+            }
+
+            builder.OpenElement(0, "table");
+            builder.AddAttribute(1, "class", "data-table");
+
+            // Header
+            builder.OpenElement(2, "thead");
+            builder.OpenElement(3, "tr");
+            var columns = data[0].Keys.ToList();
+            foreach (var col in columns)
+            {
+                builder.OpenElement(4, "th");
+                builder.AddContent(5, col.ToUpper());
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+
+            // Body
+            builder.OpenElement(6, "tbody");
+            var displayData = string.IsNullOrEmpty(searchQuery)
+                ? data.Take(10)
+                : data.Where(row => row.Values.Any(v => v?.ToString()?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false)).Take(10);
+
+            foreach (var row in displayData)
+            {
+                builder.OpenElement(7, "tr");
+                foreach (var col in columns)
+                {
+                    builder.OpenElement(8, "td");
+                    builder.AddContent(9, FormatValue(row[col]));
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+
+            builder.CloseElement();
+
+            // Footer
+            builder.OpenElement(10, "div");
+            builder.AddAttribute(11, "class", "table-footer");
+            builder.AddContent(12, $"Showing {Math.Min(10, displayData.Count())} of {data.Count} rows");
+            builder.CloseElement();
+        };
+    }
+
+    private List<Dictionary<string, object>> GetComponentData(int componentId)
+    {
+        return componentData.ContainsKey(componentId)
+            ? componentData[componentId]
+            : new List<Dictionary<string, object>>();
+    }
+
+    private async Task RenderAllCharts()
+    {
+        var chartComponents = dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart && c.IsVisible);
+
+        foreach (var chart in chartComponents)
+        {
+            await RenderChart(chart);
+        }
+    }
+
+    private async Task RenderChart(DashboardComponent component)
+    {
+        if (!componentData.ContainsKey(component.ComponentID) || !componentData[component.ComponentID].Any())
+            return;
+
+        var data = componentData[component.ComponentID];
+
+        // Use user-selected type or default from config
+        var chartType = chartTypes.ContainsKey(component.ComponentID)
+            ? chartTypes[component.ComponentID]
+            : GetChartType(component.VisualizationConfig);
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("renderDynamicChart",
+                component.ComponentID,
+                chartType,
+                data,
+                component.Title);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering chart {component.ComponentID}: {ex.Message}");
+        }
+    }
+
+    private string GetChartType(string visualizationConfig)
+    {
+        if (string.IsNullOrEmpty(visualizationConfig))
+            return "bar";
+
+        try
+        {
+            var config = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(visualizationConfig);
+            if (config != null && config.ContainsKey("chartType"))
+            {
+                return config["chartType"].GetString() ?? "bar";
+            }
+        }
+        catch { }
+
+        return "bar";
+    }
+
+    private void OptimizeDashboardLayout()
+    {
+        if (dashboard?.Components == null) return;
+
+        foreach (var component in dashboard.Components)
+        {
+            // Expand small components to fill space
+            if (component.GridWidth < 4)
+                component.GridWidth = 4;
+
+            // Ensure minimum height
+            if (component.GridHeight < 2)
+                component.GridHeight = 2;
+        }
+    }
+
+    private void ToggleChartMenu(int componentId)
+    {
+        activeChartMenu = activeChartMenu == componentId ? null : componentId;
+    }
+
+    private async Task ChangeChartType(int componentId, string newType)
+    {
+        chartTypes[componentId] = newType;
+        activeChartMenu = null;
+        await RenderChart(dashboard.Components.First(c => c.ComponentID == componentId));
+    }
+
+    // Helper classes
+    private class SqlExecutionRequest
+    {
+        public string OriginalQuestion { get; set; }
+        public int DatabaseId { get; set; }
+        public string Sql { get; set; }
+    }
+
+    private class QueryExecutionResponse
+    {
+        public bool Success { get; set; }
+        public List<Dictionary<string, object>> Results { get; set; }
+        public string ResultExplanation { get; set; }
+    }
+
+    //     private int GetGridHeight()
+    // {
+    //     if (dashboard?.Components == null || !dashboard.Components.Any())
+    //         return 10; // Default minimum
+
+    //     return dashboard.Components.Max(c => c.GridY + c.GridHeight) + 2;
+    // }
+
+}
+
+
+
+<script suppress-error="BL9992">
+    // Enhanced chart rendering with legends and better visuals
+    window.renderDynamicChart = function(componentId, chartType, data, title) {
+        const container = document.querySelector(`#chart-${componentId}`);
+        if (!container || !data || data.length === 0) {
+            console.log(`Chart ${componentId}: No container or data`);
+            return;
+        }
+
+        console.log(`Rendering chart ${componentId} with type ${chartType}`);
+
+        // Get column names from first row
+        const columns = Object.keys(data[0]);
+        const xColumn = columns[0];
+        const yColumn = columns[1];
+
+        // Extract data
+        const categories = data.map(row => row[xColumn]);
+        const values = data.map(row => row[yColumn]);
+
+        let options;
+
+        switch(chartType.toLowerCase()) {
+            case 'line':
+            case 'area':
+                options = {
+                    series: [{
+                        name: yColumn,
+                        data: values
+                    }],
+                    chart: {
+                        id: `chart-${componentId}`,
+                        type: chartType,
+                        height: '100%',
+                        toolbar: {
+                            show: true,
+                            tools: {
+                                download: true,
+                                selection: false,
+                                zoom: true,
+                                zoomin: true,
+                                zoomout: true,
+                                pan: false,
+                                reset: true
+                            }
+                        },
+                        animations: {
+                            enabled: true,
+                            easing: 'easeinout',
+                            speed: 800
+                        }
+                    },
+                    dataLabels: { enabled: false },
+                    stroke: {
+                        curve: 'smooth',
+                        width: 3,  // ✅ Thicker line
+                        colors: ['#4361EE']
+                    },
+                    xaxis: {
+                        categories: categories,
+                        title: {
+                            text: xColumn,
+                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
+                        },
+                        labels: {
+                            style: { colors: '#6b7280', fontSize: '11px' }
+                        }
+                    },
+                    yaxis: {
+                        min: 0,  // ✅ Fix: Start at 0
+                        title: {
+                            text: yColumn,
+                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
+                        },
+                        labels: {
+                            style: { colors: '#6b7280', fontSize: '11px' },
+                            formatter: function(value) {
+                                return value.toFixed(0);
+                            }
+                        }
+                    },
+                    colors: ['#4361EE'],
+                    fill: {
+                        type: chartType === 'area' ? 'gradient' : 'solid',
+                        gradient: {
+                            shadeIntensity: 1,
+                            opacityFrom: 0.5,
+                            opacityTo: 0.1,
+                            stops: [0, 90, 100]
+                        }
+                    },
+                    grid: {
+                        borderColor: '#e5e7eb',
+                        strokeDashArray: 4,
+                        padding: {
+                            bottom: 10  // ✅ Fix: Prevent line going below canvas
+                        }
+                    },
+                    // ✅ ADD LEGEND
+                    legend: {
+                        show: true,
+                        position: 'top',
+                        horizontalAlign: 'left',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        fontFamily: 'inherit',
+                        markers: {
+                            width: 12,
+                            height: 12,
+                            radius: 2
+                        },
+                        itemMargin: {
+                            horizontal: 10
+                        }
+                    },
+                    tooltip: {
+                        shared: true,
+                        intersect: false,
+                        y: {
+                            formatter: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    }
+                };
+                break;
+
+    case 'pie':
+    case 'donut':
+        const total = values.reduce((a, b) => a + b, 0);
+        options = {
+            series: values,
+            chart: {
+                id: `chart-${componentId}`,
+                type: chartType,
+                height: '100%'
+            },
+            labels: categories,
+            colors: ['#667EEA', '#48BB78', '#F6AD55', '#9F7AEA', '#FC8181', '#14B8A6', '#8B5CF6'],
+            legend: {
+                show: true,
+                position: 'bottom',
+                horizontalAlign: 'center',
+                fontSize: '14px',
+                fontWeight: 600,
+                markers: { width: 14, height: 14, radius: 12 },
+                itemMargin: { horizontal: 12, vertical: 8 },
+                formatter: function(seriesName, opts) {
+                    const value = opts.w.globals.series[opts.seriesIndex];
+                    const percentage = ((value / total) * 100).toFixed(1);
+                    return seriesName + ': ' + value.toLocaleString() + ' (' + percentage + '%)';
+                }
+            },
+            dataLabels: {
+                enabled: true,
+                formatter: function(val) {
+                    return val.toFixed(1) + "%";
+                },
+                style: { fontSize: '13px', fontWeight: 700, colors: ['#fff'] }
+            },
+            plotOptions: {
+                pie: {
+                    donut: {
+                        size: chartType === 'donut' ? '65%' : '0%'
+                    }
+                }
+            },
+            tooltip: {
+                y: {
+                    formatter: function(value) {
+                        const percentage = ((value / total) * 100).toFixed(1);
+                        return value.toLocaleString() + ' (' + percentage + '%)';
+                    }
+                }
+            }
+        };
+        break;
+            default: // bar
+                options = {
+                    series: [{
+                        name: yColumn,
+                        data: values
+                    }],
+                    chart: {
+                        id: `chart-${componentId}`,
+                        type: 'bar',
+                        height: '100%',
+                        toolbar: {
+                            show: true,
+                            tools: {
+                                download: true
+                            }
+                        },
+                        animations: {
+                            enabled: true,
+                            easing: 'easeinout',
+                            speed: 800
+                        }
+                    },
+                    plotOptions: {
+                        bar: {
+                            horizontal: false,
+                            borderRadius: 6,
+                            dataLabels: {
+                                position: 'top'
+                            },
+                            columnWidth: '60%'
+                        }
+                    },
+                    dataLabels: {
+                        enabled: true,
+                        formatter: function(val) {
+                            return val.toLocaleString();
+                        },
+                        offsetY: -20,
+                        style: {
+                            fontSize: '11px',
+                            colors: ["#304758"],
+                            fontWeight: 600
+                        }
+                    },
+                    xaxis: {
+                        categories: categories,
+                        title: {
+                            text: xColumn,
+                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
+                        },
+                        labels: {
+                            style: { colors: '#6b7280', fontSize: '11px' },
+                            rotate: -45,
+                            trim: true
+                        }
+                    },
+                    yaxis: {
+                        min: 0,
+                        title: {
+                            text: yColumn,
+                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
+                        },
+                        labels: {
+                            style: { colors: '#6b7280', fontSize: '11px' },
+                            formatter: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    },
+                    colors: ['#667EEA'],
+                    grid: {
+                        borderColor: '#e5e7eb',
+                        strokeDashArray: 4
+                    },
+                    // ✅ LEGEND (optional for single series, but good for consistency)
+                    legend: {
+                        show: false,  // Hide for single series bar
+                        position: 'top',
+                        horizontalAlign: 'left',
+                        fontSize: '13px',
+                        fontWeight: 500
+                    },
+                    tooltip: {
+                        y: {
+                            formatter: function(value) {
+                                return value.toLocaleString();
+                            }
+                        }
+                    }
+                };
+        }
+
+        // Clear existing chart if any
+        const existingChart = ApexCharts.getChartByID(`chart-${componentId}`);
+        if (existingChart) {
+            existingChart.destroy();
+        }
+
+        // Render new chart
+        const chart = new ApexCharts(container, options);
+        chart.render();
+
+        console.log(`Chart ${componentId} rendered successfully`);
+    };
+
+        window.enterFullscreen = function() {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+            elem.msRequestFullscreen();
+        }
+    };
+
+    window.exitFullscreen = function() {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+    };
+</script>

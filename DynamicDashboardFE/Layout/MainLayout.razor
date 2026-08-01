@@ -1,0 +1,100 @@
+﻿@inherits LayoutComponentBase
+@using Blazored.Toast
+@using Blazored.Toast.Configuration
+@inject IToastService toastService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<div class="app-container" style="display: flex; opacity: 1; animation: 0.5s ease 0s 1 normal forwards running fadeIn;">
+    <aside class="sidebar @NavMenuCssClass">
+        <div class="sidebar-header">
+            <a href="/" class="sidebar-logo">
+                <img src="/images/logo3.jpg" alt= "Logo" class="sidebar-logo-img" />
+                <div class="sidebar-title">
+                   HYDRA AI
+                </div>
+            </a>
+        </div>
+        <NavMenu />
+    </aside>
+    <BlazoredToasts Position="ToastPosition.TopRight"
+                    Timeout="3"
+                    ShowProgressBar="true" MaxToastCount="3" PauseProgressOnHover="true" />
+    <div class="main-content">
+        <header class="header">
+            <div class="header-left">
+                <button class="toggle-sidebar" @onclick="ToggleNavMenu" title="@(collapseNavMenu ? "Expand Sidebar" : "Collapse Sidebar")">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="header-search">
+                    <i class="fas fa-search"></i>
+                    <input type="text" placeholder="Search data, queries, dashboards...">
+                </div>
+            </div>
+            <div class="header-right">
+                @* Hidden header action buttons
+                <div class="header-actions">
+                    <button class="header-action-btn">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="header-action-btn">
+                        <i class="fas fa-bell"></i>
+                        <span class="notification-count">3</span>
+                    </button>
+                    <button class="header-action-btn">
+                        <i class="fas fa-envelope"></i>
+                        <span class="notification-count">5</span>
+                    </button>
+                    <button class="header-action-btn">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+                *@
+                <div class="user-profile">
+                    <div class="avatar">
+                        <span>JS</span>
+                        <span class="status"></span>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">Admin User</span>
+                        <span class="user-role">Admin</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <main class="content">
+            @Body
+        </main>
+        <footer class="footer">
+            <div> HYDRA AI ©. All rights reserved.</div>
+        </footer>
+    </div>
+</div>
+
+@code {
+    private bool collapseNavMenu = false;
+    private string NavMenuCssClass => collapseNavMenu ? "collapsed" : "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var storedState = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "sidebarState");
+            if (!string.IsNullOrEmpty(storedState) && storedState == "collapsed")
+            {
+                collapseNavMenu = true;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "sidebarState", collapseNavMenu ? "collapsed" : "expanded");
+    }
+
+    public void Dispose()
+    {
+    }
+}

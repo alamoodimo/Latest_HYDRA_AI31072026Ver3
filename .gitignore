@@ -1,0 +1,13 @@
+.vs/
+*.bak
+*.mdf
+*.ldf
+FoxPro Migration/VFPInstallers-master/
+FoxPro Migration/*.zip
+SQLDATA/
+*.zip
+bin/
+obj/
+appsettings.Development.json
+FoxPro Migration/
+node_modules/

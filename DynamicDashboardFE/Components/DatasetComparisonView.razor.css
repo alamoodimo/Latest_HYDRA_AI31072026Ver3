@@ -1,0 +1,477 @@
+﻿/* Main container */
+.dataset-comparison-view {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #fff;
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s, transform 0.3s ease;
+    transform: translateY(20px);
+    overflow: hidden;
+}
+
+    .dataset-comparison-view.visible {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+/* Header section */
+.comparison-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1.5rem;
+    border-bottom: 1px solid #e9ecef;
+    background: linear-gradient(to right, #f8f9fa, #e9ecef);
+}
+
+.comparison-title {
+    flex: 1;
+}
+
+    .comparison-title h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.75rem;
+        color: #343a40;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+.question-box {
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-top: 1rem;
+    border-left: 4px solid #007bff;
+    font-style: italic;
+    color: #495057;
+}
+
+.comparison-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+    .comparison-actions .btn-link {
+        color: #6c757d;
+        transition: color 0.2s ease;
+        padding: 0.25rem 0.5rem;
+        font-size: 1.25rem;
+    }
+
+        .comparison-actions .btn-link:hover {
+            color: #007bff;
+        }
+
+/* Comparison summary section */
+.comparison-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    padding: 1.5rem;
+}
+
+.summary-card, .structure-card {
+    background-color: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    overflow: hidden;
+    border: 1px solid #e9ecef;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+    .summary-card:hover, .structure-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+.summary-header, .structure-header {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-bottom: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+    .summary-header h4, .structure-header h4 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: #343a40;
+        font-weight: 600;
+    }
+
+.summary-body, .structure-body {
+    padding: 1.25rem;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #f1f1f1;
+}
+
+    .summary-row:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+.summary-label {
+    font-weight: 500;
+    color: #495057;
+}
+
+.summary-value {
+    font-weight: 600;
+}
+
+    .summary-value.success {
+        color: #28a745;
+    }
+
+    .summary-value.error {
+        color: #dc3545;
+    }
+
+    .summary-value.warning {
+        color: #ffc107;
+    }
+
+/* Structure section */
+.structure-section {
+    margin-bottom: 1.25rem;
+}
+
+    .structure-section:last-child {
+        margin-bottom: 0;
+    }
+
+    .structure-section h5 {
+        margin: 0 0 0.75rem 0;
+        font-size: 0.9rem;
+        color: #495057;
+        font-weight: 500;
+    }
+
+.column-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.column-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+    .column-chip i {
+        font-size: 0.7rem;
+    }
+
+    .column-chip.common {
+        background-color: #e3f2fd;
+        color: #0d6efd;
+    }
+
+    .column-chip.expected {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .column-chip.actual {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+
+/* Differences section */
+.differences-section {
+    padding: 0 1.5rem 1.5rem 1.5rem;
+}
+
+.differences-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+    .differences-header h4 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: #343a40;
+        font-weight: 600;
+    }
+
+.differences-table-container {
+    background-color: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    overflow-x: auto;
+    border: 1px solid #e9ecef;
+}
+
+.differences-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .differences-table th,
+    .differences-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border: 1px solid #e9ecef;
+    }
+
+    .differences-table th {
+        background-color: #f8f9fa;
+        color: #495057;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .differences-table tbody tr:nth-child(even) {
+        background-color: rgba(0, 0, 0, 0.02);
+    }
+
+    .differences-table tbody tr:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+    }
+
+.expected-value {
+    background-color: rgba(40, 167, 69, 0.1);
+}
+
+.actual-value {
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+/* Datasets section */
+.datasets-section {
+    padding: 0 1.5rem 1.5rem 1.5rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 1rem;
+}
+
+.tab {
+    padding: 0.75rem 1.25rem;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+    .tab:hover {
+        color: #007bff;
+        border-bottom-color: #adb5bd;
+    }
+
+    .tab.active {
+        color: #007bff;
+        border-bottom-color: #007bff;
+    }
+
+.tab-content {
+    flex: 1;
+    overflow: auto;
+}
+
+/* Dataset display */
+.dataset-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.dataset-info {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem 0.5rem 0 0;
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+}
+
+.dataset-table-container {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.dataset-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .dataset-table th,
+    .dataset-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border: 1px solid #dee2e6;
+        font-size: 0.875rem;
+    }
+
+    .dataset-table th {
+        background-color: #f8f9fa;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        font-weight: 600;
+    }
+
+    .dataset-table tbody tr:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+    }
+
+    .dataset-table .common-column {
+        color: #0d6efd;
+    }
+
+    .dataset-table .unique-column {
+        color: #6c757d;
+    }
+
+.common-icon {
+    margin-left: 0.25rem;
+    font-size: 0.7rem;
+    color: #0d6efd;
+}
+
+.unique-icon {
+    margin-left: 0.25rem;
+    font-size: 0.7rem;
+    color: #dc3545;
+}
+
+.different-row {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+}
+
+.different-cell {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+}
+
+.dataset-note {
+    margin-top: 0.5rem;
+    color: #6c757d;
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+/* Empty states */
+.empty-dataset, .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    text-align: center;
+}
+
+    .empty-dataset i, .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        color: #adb5bd;
+    }
+
+    .empty-dataset h4, .empty-state h4 {
+        margin-bottom: 0.5rem;
+        color: #343a40;
+    }
+
+/* Loading states */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+}
+
+    .loading-container .spinner-border {
+        width: 3rem;
+        height: 3rem;
+        margin-bottom: 1rem;
+        color: #007bff;
+    }
+
+/* Animations */
+.animate__animated {
+    animation-duration: 0.5s;
+}
+
+.animate__fadeIn {
+    animation-name: fadeIn;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 992px) {
+    .comparison-summary {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .comparison-header {
+        flex-direction: column;
+    }
+
+    .comparison-actions {
+        margin-top: 1rem;
+        align-self: flex-end;
+    }
+
+    .tabs {
+        overflow-x: auto;
+    }
+
+    .tab {
+        white-space: nowrap;
+        padding: 0.75rem 0.75rem;
+    }
+}

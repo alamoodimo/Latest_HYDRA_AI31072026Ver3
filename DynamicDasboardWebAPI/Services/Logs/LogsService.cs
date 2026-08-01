@@ -1,0 +1,45 @@
+﻿using System.Threading.Tasks;
+using DynamicDasboardWebAPI.Repositories;
+using DynamicDashboardCommon.Helper;
+using DynamicDashboardCommon.Models;
+
+namespace DynamicDasboardWebAPI.Services
+{
+    /// <summary>
+    /// Service layer for logging events.
+    /// This class provides methods to log exceptions and other events into the database.
+    /// </summary>
+    public class LogsService : ILogsService
+    {
+        private readonly LogsRepository _repository;
+        private ILogger<LogsService> _logger;
+        /// <summary>
+        /// Initializes a new instance of the <see cref="LogsService"/> class.
+        /// </summary>
+        /// <param name="repository">Instance of the logs repository.</param>
+        public LogsService(LogsRepository repository, ILogger<LogsService> logger)
+        {
+            _repository = repository;
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Logs an exception into the database.
+        /// </summary>
+        /// <param name="userId">The ID of the user (nullable).</param>
+        /// <param name="eventType">The type of the event.</param>
+        /// <param name="eventDescription">The description of the event.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
+        public async Task AddLogAsync(int? userId, string eventType, string eventDescription)
+        {
+            try
+            {
+                await _repository.AddLogAsync(userId, eventType, eventDescription);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, ApplicationHelper.GetExceptionDetails(ex));
+            }
+        }
+    }
+}

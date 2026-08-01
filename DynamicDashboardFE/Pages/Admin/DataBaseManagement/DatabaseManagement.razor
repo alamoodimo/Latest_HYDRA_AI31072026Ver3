@@ -1,0 +1,815 @@
+﻿@page "/"
+@using DynamicDashboardCommon.Models
+@inject HttpClient Http
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject IToastService toastService
+
+<div class="container-fluid">
+	<h3 class="mb-4">
+		<i class="fas fa-database me-2"></i>Database Management
+	</h3>
+
+	@if (isLoading)
+	{
+		<div class="d-flex justify-content-center my-5">
+			<div class="spinner-border text-primary" role="status">
+				<span class="visually-hidden">Loading...</span>
+			</div>
+			<div class="ms-3">Loading databases...</div>
+		</div>
+	}
+	else
+	{
+		<div class="card shadow-sm mb-4">
+			<div class="card-header bg-light d-flex justify-content-between align-items-center">
+				<h5 class="mb-0">Connected Databases</h5>
+				<button class="btn btn-primary green" @onclick="ShowDatabaseForm">
+					<i class="fas fa-plus me-2"></i>Add Database
+				</button>
+			</div>
+			<div class="card-body">
+				<div class="table-responsive">
+					<table class="table table-striped table-hover">
+						<thead>
+							<tr>
+								<th>Name</th>
+								<th>Type</th>
+								<th>Description</th>
+								<th>Created By</th>
+								<th>Status</th>
+								<th>Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							@foreach (var db in databases)
+							{
+								<tr>
+									<td>@db.FriendlyName</td>
+									<td>@db.DatabaseTypeName</td>
+									<td>@(db.Description?.Length > 50 ? db.Description.Substring(0, 47) + "..." : db.Description)</td>
+									<td>
+										@if (db.CreatedBy > 0)
+										{
+											<span class="text-muted">@GetUserName(db.CreatedBy)</span>
+										}
+										else
+										{
+											<span class="text-muted">System</span>
+										}
+									</td>
+									<td>
+										@if (db.IsActive == true)
+										{
+											<span class="badge bg-success">Active</span>
+										}
+										else
+										{
+											<span class="badge bg-danger">Inactive</span>
+										}
+									</td>
+									<td>
+										<div class="btn-group" role="group">
+											<button class="btn btn-sm btn-primary" @onclick="() => NavigateToMetadataManager(db.DatabaseID)">
+												<i class="fas fa-cogs me-1"></i> Manage Metadata
+											</button>
+											<button class="btn btn-sm btn-primary" @onclick="() => TestConnection(db)">
+												<i class="fas fa-plug me-1"></i> Test
+											</button>
+											<button class="btn btn-sm btn-primary" @onclick="() => EditDatabase(db)">
+												<i class="fas fa-edit me-1"></i> Edit
+											</button>
+											<button class="btn btn-sm btn-primary" @onclick="() => DeleteDatabase(db.DatabaseID)">
+												<i class="fas fa-trash me-1"></i> Delete
+											</button>
+										</div>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+	}
+
+	<!-- Database Form Modal -->
+	<!-- Database Form Modal -->
+	<div class="modal fade @(showDatabaseForm ? "show" : "")" tabindex="-1" style="display: @(showDatabaseForm ? "block" : "none")">
+		<div class="modal-dialog modal-lg modal-edit-database">
+			<div class="modal-content">
+				<div class="modal-header bg-primary text-white">
+					<h5 class="modal-title">
+						<i class="fas @(isEditMode ? "fa-edit" : "fa-plus-circle") me-2"></i>
+						@(isEditMode ? "Edit Database" : "Add Database")
+					</h5>
+					<button type="button" class="btn-close btn-close-white" @onclick="CloseDatabaseForm"></button>
+				</div>
+				<div class="modal-body">
+					<EditForm Model="databaseModel" OnValidSubmit="SaveDatabase">
+						<DataAnnotationsValidator />
+
+						<!-- Section 1: Basic Info -->
+						<div class="card mb-3">
+							<div class="card-header bg-light py-2">
+								<i class="fas fa-info-circle me-2"></i>Basic Information
+							</div>
+							<div class="card-body">
+								<div class="row mb-3">
+									<div class="col-md-6">
+										<label class="form-label">Database Name <span class="text-danger">*</span></label>
+										<div class="input-group">
+											@if (availableDatabases.Any())
+											{
+												<InputSelect @bind-Value="databaseModel.Name" class="form-select">
+													<option value="">-- Select Database --</option>
+													@foreach (var db in availableDatabases)
+													{
+														<option value="@db">@db</option>
+													}
+												</InputSelect>
+											}
+											else
+											{
+												<InputText @bind-Value="databaseModel.Name" class="form-control" placeholder="Enter database name" />
+											}
+											<button type="button"
+													class="btn btn-outline-secondary"
+													@onclick="LoadDatabasesFromServer"
+													disabled="@isLoadingDatabases"
+													title="Load databases from server">
+												@if (isLoadingDatabases)
+												{
+													<span class="spinner-border spinner-border-sm"></span>
+												}
+												else
+												{
+													<i class="fas fa-sync"></i>
+												}
+											</button>
+										</div>
+										<small class="text-muted">Fill server details first, then click refresh to load databases</small>
+									</div>
+									<div class="col-md-6">
+										<label class="form-label">Database Type <span class="text-danger">*</span></label>
+										<InputSelect @bind-Value="databaseModel.TypeID" class="form-select" @onchange="OnDatabaseTypeChanged">
+											<option value="1">SQL Server</option>
+											<option value="2">MySQL</option>
+											<option value="3">Oracle</option>
+											<option value="4">PostgreSQL</option>
+										</InputSelect>
+									</div>
+								</div>
+								<div class="row mb-3">
+									<div class="col-md-8">
+										<label class="form-label">Server Address <span class="text-danger">*</span></label>
+										<InputText @bind-Value="databaseModel.ServerAddress" class="form-control"
+												   placeholder="e.g., localhost or mysql-xxx.aivencloud.com" />
+									</div>
+									<div class="col-md-4">
+										<label class="form-label">Port</label>
+										<InputNumber @bind-Value="databaseModel.Port" class="form-control"
+													 placeholder="@GetDefaultPort()" />
+										<small class="text-muted">Default: @GetDefaultPort()</small>
+									</div>
+								</div>
+								<div class="row">
+									<div class="col-md-12">
+										<label class="form-label">Friendly Name</label>
+										<InputText @bind-Value="databaseModel.FriendlyName" class="form-control"
+												   placeholder="Display name (optional)" />
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Section 2: Authentication -->
+						<div class="card mb-3">
+							<div class="card-header bg-light py-2">
+								<i class="fas fa-key me-2"></i>Authentication
+							</div>
+							<div class="card-body">
+								<div class="row">
+									<div class="col-md-6">
+										<label class="form-label">Username</label>
+										<InputText @bind-Value="databaseModel.Username" class="form-control"
+												   placeholder="Database username" />
+									</div>
+									<div class="col-md-6">
+										<label class="form-label">Password</label>
+										<div class="input-group">
+											<InputText @bind-Value="databaseModel.EncryptedCredentials"
+													   type="@(showPassword ? "text" : "password")"
+													   class="form-control"
+													   placeholder="Database password" />
+											<button type="button" class="btn btn-outline-secondary" @onclick="TogglePasswordVisibility">
+												<i class="fas @(showPassword ? "fa-eye-slash" : "fa-eye")"></i>
+											</button>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Section 3: Security Settings -->
+						<div class="card mb-3">
+							<div class="card-header bg-light py-2">
+								<i class="fas fa-shield-alt me-2"></i>Security Settings
+							</div>
+							<div class="card-body">
+								<div class="row mb-3">
+									<div class="col-md-4">
+										<label class="form-label">SSL Mode</label>
+										<InputSelect @bind-Value="databaseModel.SslMode" class="form-select">
+											<option value="None">None (No SSL)</option>
+											<option value="Preferred">Preferred (Use if available)</option>
+											<option value="Prefer">Preferred (For Postgresql)</option>
+											<option value="Required">Required (Must use SSL)</option>
+											<option value="VerifyCA">Verify CA (Verify certificate authority)</option>
+											<option value="VerifyFull">Verify Full (Full verification)</option>
+										</InputSelect>
+										<small class="text-muted">
+											@GetSslModeHint()
+										</small>
+									</div>
+									<div class="col-md-4">
+										<label class="form-label d-block">&nbsp;</label>
+										<div class="form-check mt-2">
+											<InputCheckbox @bind-Value="databaseModel.AllowPublicKeyRetrieval" class="form-check-input" id="allowPublicKey" />
+											<label class="form-check-label" for="allowPublicKey">
+												Allow Public Key Retrieval
+											</label>
+										</div>
+										<small class="text-muted">Required for MySQL cloud databases</small>
+									</div>
+									<div class="col-md-4">
+										<label class="form-label d-block">&nbsp;</label>
+										<div class="form-check mt-2">
+											<InputCheckbox @bind-Value="databaseModel.TrustServerCertificate" class="form-check-input" id="trustCert" />
+											<label class="form-check-label" for="trustCert">
+												Trust Server Certificate
+											</label>
+										</div>
+										<small class="text-muted">For SQL Server self-signed certs</small>
+									</div>
+								</div>
+
+								<!-- SSL Mode Info Alert -->
+								@if (databaseModel.SslMode == "Required" || databaseModel.SslMode == "VerifyCA" || databaseModel.SslMode == "VerifyFull")
+								{
+									<div class="alert alert-info py-2 mb-0">
+										<i class="fas fa-info-circle me-2"></i>
+										<strong>SSL Enabled:</strong> Connection will be encrypted. Make sure your database server supports SSL.
+									</div>
+								}
+							</div>
+						</div>
+
+						<!-- Section 4: Additional Settings -->
+						<div class="card mb-3">
+							<div class="card-header bg-light py-2" role="button" @onclick="ToggleAdvancedSettings">
+								<i class="fas fa-cog me-2"></i>Advanced Settings
+								<i class="fas @(showAdvancedSettings ? "fa-chevron-up" : "fa-chevron-down") float-end"></i>
+							</div>
+							@if (showAdvancedSettings)
+							{
+								<div class="card-body">
+									<div class="mb-3">
+										<label class="form-label">Description</label>
+										<InputTextArea @bind-Value="databaseModel.Description" class="form-control" rows="2"
+													   placeholder="Optional description" />
+									</div>
+									<div class="mb-3">
+										<label class="form-label">Connection String (Override)</label>
+										<InputTextArea @bind-Value="databaseModel.ConnectionString" class="form-control" rows="2"
+													   placeholder="Leave empty to auto-generate from settings above" />
+										<small class="text-muted">If provided, this will override all settings above</small>
+									</div>
+									<div class="mb-3">
+										<label class="form-label">DB Creation Script (Optional)</label>
+										<InputTextArea @bind-Value="databaseModel.DBCreationScript" class="form-control" rows="3"
+													   placeholder="Optional SQL script" />
+									</div>
+									<div class="form-check" style="@(isEditMode ? "" : "display:none")">
+										<InputCheckbox @bind-Value="databaseModel.IsActive" class="form-check-input" id="isActive" />
+										<label class="form-check-label" for="isActive">Active</label>
+									</div>
+								</div>
+							}
+						</div>
+
+						<!-- Action Buttons -->
+						<div class="d-flex justify-content-end gap-2">
+							<button type="button" class="btn btn-secondary" @onclick="CloseDatabaseForm">
+								<i class="fas fa-times me-1"></i>Cancel
+							</button>
+							<button type="button" class="btn btn-info" @onclick="TestConnectionFromForm" disabled="@isTesting">
+								@if (isTesting)
+								{
+									<span class="spinner-border spinner-border-sm me-1"></span>
+								}
+								else
+								{
+									<i class="fas fa-plug me-1"></i>
+								}
+								Test Connection
+							</button>
+							<button type="submit" class="btn btn-success">
+								<i class="fas fa-save me-1"></i>Save
+							</button>
+						</div>
+					</EditForm>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="modal-backdrop fade @(showDatabaseForm ? "show" : "")" style="display: @(showDatabaseForm ? "block" : "none")"></div>
+
+
+
+
+	<div class="modal-backdrop fade @(showDatabaseForm ? "show" : "")" style="display: @(showDatabaseForm ? "block" : "none")"></div>
+</div>
+
+@code {
+	private List<Database> databases = new List<Database>();
+	private bool isLoading = true;
+	private bool showDatabaseForm = false;
+	private bool isEditMode = false;
+	private Database databaseModel = new Database();
+
+	private List<string> availableDatabases = new List<string>();
+	private bool isLoadingDatabases = false;
+	private bool showPassword = false;
+	private bool showAdvancedSettings = false;
+	private bool isTesting = false;
+
+	// private List<string> availableDatabases = new List<string>();
+	// private bool isLoadingDatabases = false;
+
+	private bool IsActiveBool
+	{
+		get => databaseModel.IsActive;
+		set => databaseModel.IsActive = value;
+	}
+
+	protected override async Task OnInitializedAsync()
+	{
+		await LoadDatabases();
+	}
+
+	private async Task LoadDatabases()
+	{
+		isLoading = true;
+
+		try
+		{
+			databases = await Http.GetFromJsonAsync<List<Database>>("api/databases") ?? new List<Database>();
+		}
+		catch (Exception ex)
+		{
+			await JSRuntime.InvokeVoidAsync("alert", $"Error loading databases: {ex.Message}");
+		}
+		finally
+		{
+			isLoading = false;
+		}
+	}
+
+	private void ShowDatabaseForm()
+	{
+		databaseModel = new Database
+		{
+			IsActive = true,
+			TypeID = 1,
+			CreatedBy = 3,
+			Port = 1433,
+			SslMode = "Preferred",
+			AllowPublicKeyRetrieval = true,
+			TrustServerCertificate = true
+		};
+		isEditMode = false;
+		showDatabaseForm = true;
+		availableDatabases.Clear();
+		showAdvancedSettings = false;
+	}
+
+	private void EditDatabase(Database db)
+	{
+		databaseModel = new Database
+		{
+			Name = db.Name,
+			DatabaseID = db.DatabaseID,
+			TypeID = db.TypeID,
+			ServerAddress = db.ServerAddress,
+			FriendlyName = db.FriendlyName,
+			Port = db.Port,
+			Username = db.Username,
+			EncryptedCredentials = db.EncryptedCredentials,
+			Description = db.Description,
+			IsActive = db.IsActive,
+			CreatedBy = db.CreatedBy,
+			DBCreationScript = db.DBCreationScript,
+			ConnectionString = db.ConnectionString,
+			// ✅ New fields
+			SslMode = db.SslMode ?? "Preferred",
+			AllowPublicKeyRetrieval = db.AllowPublicKeyRetrieval,
+			TrustServerCertificate = db.TrustServerCertificate
+		};
+		isEditMode = true;
+		showDatabaseForm = true;
+		availableDatabases.Clear();
+		showAdvancedSettings = false;
+	}
+
+	private void CloseDatabaseForm()
+	{
+		showDatabaseForm = false;
+	}
+
+	private async Task SaveDatabase()
+	{
+		try
+		{
+			if (isEditMode)
+			{
+				bool testconnection = await TestConnection(databaseModel);
+				if (!testconnection)
+				{
+					toastService.ShowWarning("Connection Failed, please make sure connection information is correct");
+					return;
+				}
+
+				// Update existing database
+				var response = await Http.PutAsJsonAsync($"api/databases/{databaseModel.DatabaseID}", databaseModel);
+
+				if (response.IsSuccessStatusCode)
+				{
+					toastService.ShowSuccess("Database updated successfully!");
+				}
+				else
+				{
+					toastService.ShowWarning("Database was not updated, please try again");
+				}
+			}
+			else
+			{
+				bool testconnection = await TestConnection(databaseModel);
+				if (!testconnection)
+				{
+					toastService.ShowWarning("Connection Failed, please try again");
+					return;
+				}
+				// Create new database and retrieve schema
+				var response = await Http.PostAsJsonAsync("api/databases", databaseModel);
+
+				if (response.IsSuccessStatusCode)
+				{
+					// Get the ID of the newly created database
+					var newDatabaseId = await response.Content.ReadFromJsonAsync<int>();
+
+					if (newDatabaseId == 0)
+					{
+						toastService.ShowWarning("Database was not created, please try again");
+						return;
+					}
+					// Show initial success message
+					toastService.ShowSuccess("Database was not created, please try again");
+				}
+				else
+				{
+					await JSRuntime.InvokeVoidAsync("alert", "Failed to create database.");
+				}
+			}
+
+			showDatabaseForm = false;
+			await LoadDatabases();
+		}
+		catch (Exception ex)
+		{
+			await JSRuntime.InvokeVoidAsync("alert", $"Error saving database: {ex.Message}");
+		}
+	}
+
+	private async Task DeleteDatabase(int databaseId)
+	{
+		if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this database?"))
+			return;
+
+		try
+		{
+			await Http.DeleteAsync($"api/databases/{databaseId}");
+			await JSRuntime.InvokeVoidAsync("alert", "Database deleted successfully!");
+			await LoadDatabases();
+		}
+		catch (Exception ex)
+		{
+			await JSRuntime.InvokeVoidAsync("alert", $"Error deleting database: {ex.Message}");
+		}
+	}
+
+	private async Task<bool> TestConnection(Database db)
+	{
+		var isSuccessConnection = false;
+		try
+		{
+			db.ConnectionString = string.Empty;
+			var response = await Http.PostAsJsonAsync("api/databases/test-connection", db);
+
+			if (response.IsSuccessStatusCode)
+			{
+				isSuccessConnection = await response.Content.ReadFromJsonAsync<bool>();
+				if (isSuccessConnection)
+				{
+					toastService.ShowSuccess("Connection successful!");
+				}
+				else
+				{
+					toastService.ShowWarning("Connection Failed!");
+				}
+			}
+			else
+			{
+				toastService.ShowWarning("Connection Failed!");
+			}
+			return isSuccessConnection;
+		}
+		catch (Exception)
+		{
+			toastService.ShowWarning("Connection Failed!");
+			return isSuccessConnection;
+		}
+	}
+
+	private async Task<bool> TestConnectionFromForm()
+	{
+		isTesting = true;
+		StateHasChanged();
+
+		var isSuccessConnection = false;
+		try
+		{
+			// For form testing, we should always use the form model
+			var testModel = new Database
+			{
+				Name = databaseModel.Name,
+				TypeID = databaseModel.TypeID,
+				ServerAddress = databaseModel.ServerAddress,
+				Port = databaseModel.Port,
+				Username = databaseModel.Username,
+				EncryptedCredentials = databaseModel.EncryptedCredentials,
+				ConnectionString = databaseModel.ConnectionString,
+				SslMode = databaseModel.SslMode,
+				AllowPublicKeyRetrieval = databaseModel.AllowPublicKeyRetrieval,
+				TrustServerCertificate = databaseModel.TrustServerCertificate
+			};
+			testModel.ConnectionString = "";
+			var response = await Http.PostAsJsonAsync("api/databases/test-connection", testModel);
+
+			if (response.IsSuccessStatusCode)
+			{
+				isSuccessConnection = await response.Content.ReadFromJsonAsync<bool>();
+				if (isSuccessConnection)
+				{
+					toastService.ShowSuccess("Connection successful!");
+				}
+				else
+				{
+					// Get more detailed error message if available
+					var errorContent = await response.Content.ReadAsStringAsync();
+					if (!string.IsNullOrEmpty(errorContent) && errorContent != "false")
+					{
+						toastService.ShowWarning($"Connection failed: {errorContent}");
+					}
+					else
+					{
+						toastService.ShowWarning("Connection failed!");
+					}
+				}
+			}
+			else
+			{
+				var error = await response.Content.ReadAsStringAsync();
+				toastService.ShowWarning($"Connection test error: {error}");
+			}
+		}
+		catch (Exception ex)
+		{
+			toastService.ShowWarning($"Connection test exception: {ex.Message}");
+		}
+		finally
+		{
+			isTesting = false;
+			StateHasChanged();
+		}
+
+		return isSuccessConnection;
+	}
+
+	private void NavigateToMetadataManager(int databaseId)
+	{
+		// NavigationManager.NavigateTo($"/admin/database-metadata/{databaseId}");
+		// NavigationManager.NavigateTo($"/admin/database-metadata-json-analysis/{databaseId}");
+		NavigationManager.NavigateTo($"/admin/DBMetaDataV2/{databaseId}");
+
+	}
+
+	private string GetUserName(int userId)
+	{
+		// TODO: Replace with actual user lookup from Users table/service
+		// For now, return a placeholder based on ID
+		var userNames = new Dictionary<int, string>
+		{
+			{ 1, "Admin" },
+			{ 2, "System" },
+			{ 3, "Admin User" }
+		};
+
+		return userNames.TryGetValue(userId, out var name) ? name : $"User {userId}";
+	}
+
+	// private async Task LoadDatabasesFromServer()
+	// {
+	// 	if (string.IsNullOrEmpty(databaseModel.ServerAddress) || databaseModel.TypeID <= 0)
+	// 	{
+	// 		toastService.ShowWarning("Please enter server address and select database type first");
+	// 		return;
+	// 	}
+
+	// 	isLoadingDatabases = true;
+	// 	StateHasChanged();
+
+	// 	try
+	// 	{
+	// 		var serverInfo = new Database
+	// 		{
+	// 			ServerAddress = databaseModel.ServerAddress,
+	// 			Port = databaseModel.Port,
+	// 			TypeID = databaseModel.TypeID,
+	// 			Username = databaseModel.Username,
+	// 			EncryptedCredentials = databaseModel.EncryptedCredentials
+	// 		};
+
+	// 		var response = await Http.PostAsJsonAsync("api/databases/list-databases", serverInfo);
+
+	// 		if (response.IsSuccessStatusCode)
+	// 		{
+	// 			availableDatabases = await response.Content.ReadFromJsonAsync<List<string>>() ?? new List<string>();
+
+	// 			if (availableDatabases.Any())
+	// 			{
+	// 				toastService.ShowSuccess($"Found {availableDatabases.Count} databases");
+	// 			}
+	// 			else
+	// 			{
+	// 				toastService.ShowWarning("No databases found on this server");
+	// 			}
+	// 		}
+	// 		else
+	// 		{
+	// 			toastService.ShowError("Failed to fetch databases. Check connection details.");
+	// 			availableDatabases = new List<string>();
+	// 		}
+	// 	}
+	// 	catch (Exception ex)
+	// 	{
+	// 		toastService.ShowError($"Error: {ex.Message}");
+	// 		availableDatabases = new List<string>();
+	// 	}
+	// 	finally
+	// 	{
+	// 		isLoadingDatabases = false;
+	// 		StateHasChanged();
+	// 	}
+	// }
+
+	// ✅ Load databases from server
+	private async Task LoadDatabasesFromServer()
+	{
+		if (string.IsNullOrEmpty(databaseModel.ServerAddress) || databaseModel.TypeID <= 0)
+		{
+			toastService.ShowWarning("Please enter server address and select database type first");
+			return;
+		}
+
+		isLoadingDatabases = true;
+		StateHasChanged();
+
+		try
+		{
+			var serverInfo = new Database
+			{
+				ServerAddress = databaseModel.ServerAddress,
+				Port = databaseModel.Port,
+				TypeID = databaseModel.TypeID,
+				Username = databaseModel.Username,
+				EncryptedCredentials = databaseModel.EncryptedCredentials,
+				SslMode = databaseModel.SslMode,
+				AllowPublicKeyRetrieval = databaseModel.AllowPublicKeyRetrieval,
+				TrustServerCertificate = databaseModel.TrustServerCertificate
+			};
+
+			var response = await Http.PostAsJsonAsync("api/databases/list-databases", serverInfo);
+
+			if (response.IsSuccessStatusCode)
+			{
+				availableDatabases = await response.Content.ReadFromJsonAsync<List<string>>() ?? new List<string>();
+
+				if (availableDatabases.Any())
+				{
+					toastService.ShowSuccess($"Found {availableDatabases.Count} databases");
+				}
+				else
+				{
+					toastService.ShowWarning("No databases found on this server");
+				}
+			}
+			else
+			{
+				var error = await response.Content.ReadAsStringAsync();
+				toastService.ShowError($"Failed to fetch databases: {error}");
+				availableDatabases = new List<string>();
+			}
+		}
+		catch (Exception ex)
+		{
+			toastService.ShowError($"Error: {ex.Message}");
+			availableDatabases = new List<string>();
+		}
+		finally
+		{
+			isLoadingDatabases = false;
+			StateHasChanged();
+		}
+	}
+
+	// ✅ Toggle password visibility
+	private void TogglePasswordVisibility()
+	{
+		showPassword = !showPassword;
+	}
+
+	// ✅ Toggle advanced settings
+	private void ToggleAdvancedSettings()
+	{
+		showAdvancedSettings = !showAdvancedSettings;
+	}
+
+	// ✅ Get default port based on database type
+	private string GetDefaultPort()
+	{
+		return databaseModel.TypeID switch
+		{
+			1 => "1433",  // SQL Server
+			2 => "3306",  // MySQL
+			3 => "1521",  // Oracle
+			4 => "5432",  //PostgreSQL
+			_ => "1433"
+		};
+	}
+
+	// ✅ Get SSL mode hint text
+	private string GetSslModeHint()
+	{
+		return databaseModel.SslMode switch
+		{
+			"None" => "No encryption (not recommended for production)",
+			"Preferred" => "Use SSL if server supports it",
+			"Prefer" => "Prefer (For Postgresql)",
+			"Required" => "SSL required (recommended for cloud databases)",
+			"VerifyCA" => "Verify server certificate authority",
+			"VerifyFull" => "Full certificate verification",
+			_ => "Select SSL mode for secure connections"
+		};
+	}
+
+	// ✅ Handle database type change - reset SSL defaults
+	private void OnDatabaseTypeChanged(ChangeEventArgs e)
+	{
+		// Set sensible defaults based on database type
+		switch (databaseModel.TypeID)
+		{
+			case 1: // SQL Server
+				databaseModel.SslMode = "Preferred";
+				databaseModel.TrustServerCertificate = true;
+				databaseModel.Port = databaseModel.Port == 0 ? 1433 : databaseModel.Port;
+				break;
+			case 2: // MySQL
+				databaseModel.SslMode = "Required";
+				databaseModel.AllowPublicKeyRetrieval = true;
+				databaseModel.Port = databaseModel.Port == 0 ? 3306 : databaseModel.Port;
+				break;
+			case 3: // Oracle
+				databaseModel.SslMode = "Preferred";
+				databaseModel.Port = databaseModel.Port == 0 ? 1521 : databaseModel.Port;
+				break;
+			case 4: // PostgreSQL - ADD THIS CASE
+				databaseModel.SslMode = "Prefer";  // PostgreSQL uses "Prefer" not "Preferred"
+				databaseModel.Port = databaseModel.Port == 0 ? 5432 : databaseModel.Port;
+				break;
+		}
+
+		// Clear available databases when type changes
+		availableDatabases.Clear();
+	}
+}

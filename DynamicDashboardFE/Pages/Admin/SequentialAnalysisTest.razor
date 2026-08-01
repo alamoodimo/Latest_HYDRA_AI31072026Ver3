@@ -1,0 +1,168 @@
+@page "/admin/sequential-analysis-test/{DatabaseId:int}"
+@inject HttpClient Http
+@inject IToastService ToastService
+
+<div style="max-width: 1200px; margin: 20px auto; padding: 20px;">
+    <h3>Sequential Schema Analysis - Test</h3>
+
+    @if (isLoading)
+    {
+        <div style="margin: 20px 0;">
+            <p><strong>@loadingMessage</strong></p>
+            <div style="width: 100%; height: 4px; background: #e0e0e0;">
+                <div style="width: 50%; height: 100%; background: #2196F3; animation: pulse 1.5s infinite;"></div>
+            </div>
+        </div>
+    }
+
+    @if (!isLoading && analysisState != null)
+    {
+        <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
+            <h4>Analysis Status</h4>
+            <hr />
+            <p><strong>Status:</strong> @analysisState.status</p>
+            <p><strong>Current Phase:</strong> @analysisState.currentPhase</p>
+            <p><strong>Started:</strong> @analysisState.startedAt</p>
+            @if (analysisState.completedAt != null)
+            {
+                <p><strong>Completed:</strong> @analysisState.completedAt</p>
+            }
+        </div>
+
+        @if (analysisState.phase1Result != null)
+        {
+            <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
+                <h5>Phase 1: Domain Grouping <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">@analysisState.phase1Result.status</span></h5>
+                @if (!string.IsNullOrEmpty(analysisState.phase1Result.dataJson?.ToString()))
+                {
+                    <pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; font-size: 12px;">@analysisState.phase1Result.dataJson</pre>
+                }
+            </div>
+        }
+
+        @if (analysisState.phase2Result != null)
+        {
+            <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
+                <h5>Phase 2: Table Analysis <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">@analysisState.phase2Result.status</span></h5>
+                @if (!string.IsNullOrEmpty(analysisState.phase2Result.dataJson?.ToString()))
+                {
+                    <pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; font-size: 12px;">@analysisState.phase2Result.dataJson</pre>
+                }
+            </div>
+        }
+
+        @if (analysisState.phase3Result != null)
+        {
+            <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
+                <h5>Phase 3: Column Analysis <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">@analysisState.phase3Result.status</span></h5>
+                @if (!string.IsNullOrEmpty(analysisState.phase3Result.dataJson?.ToString()))
+                {
+                    <pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; font-size: 12px;">@analysisState.phase3Result.dataJson</pre>
+                }
+            </div>
+        }
+
+        @if (analysisState.phase4Result != null)
+        {
+            <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
+                <h5>Phase 4: Relationship Analysis <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">@analysisState.phase4Result.status</span></h5>
+                @if (!string.IsNullOrEmpty(analysisState.phase4Result.dataJson?.ToString()))
+                {
+                    <pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; font-size: 12px;">@analysisState.phase4Result.dataJson</pre>
+                }
+            </div>
+        }
+    }
+
+    <button @onclick="StartAnalysis" disabled="@isLoading" style="padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+        Start Analysis
+    </button>
+    <button @onclick="RefreshStatus" disabled="@isLoading" style="padding: 10px 20px; background: #9E9E9E; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        Refresh Status
+    </button>
+</div>
+
+<style>
+    @@keyframes pulse {
+        0%, 100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public int DatabaseId { get; set; }
+
+    private bool isLoading = false;
+    private string loadingMessage = "";
+    private dynamic analysisState = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStatus();
+    }
+
+    private async Task StartAnalysis()
+    {
+        isLoading = true;
+        loadingMessage = "Starting sequential analysis...";
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.PostAsync($"api/SequentialSchemaAnalysis/start/{DatabaseId}", null);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadAsStringAsync();
+                analysisState = System.Text.Json.JsonSerializer.Deserialize<dynamic>(result);
+                ToastService.ShowSuccess("Analysis started successfully!");
+            }
+            else
+            {
+                ToastService.ShowError($"Error starting analysis");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Exception: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshStatus()
+    {
+        isLoading = true;
+        loadingMessage = "Loading analysis status...";
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.GetAsync($"api/SequentialSchemaAnalysis/status/{DatabaseId}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadAsStringAsync();
+                analysisState = System.Text.Json.JsonSerializer.Deserialize<dynamic>(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Silently fail on initial load
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}

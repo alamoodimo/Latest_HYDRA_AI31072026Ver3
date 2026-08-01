@@ -1,0 +1,1223 @@
+﻿using Dapper;
+using DynamicDashboardCommon.Models;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+using MySql.Data.MySqlClient;
+using Npgsql;
+using Oracle.ManagedDataAccess.Client;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using static DynamicDasboardWebAPI.Repositories.QueryRepository;
+
+namespace DynamicDasboardWebAPI.Utilities
+{
+    /// <summary>
+    /// Helper class for standardized database operations using Dapper and ADO.NET
+    /// Provides extension methods for IDbConnection and other database utilities
+    /// </summary>
+    public static class DatabaseHelper
+    {
+
+        // Add this private helper method at the top of the class (after the namespace declaration)
+        private static DbConnection CreateConnectionByType(IDbConnection templateConnection)
+        {
+            if (templateConnection == null)
+                return null;
+
+            // Determine connection type from the template connection
+            var connectionString = templateConnection.ConnectionString;
+
+            // Check if it's a known connection type by examining the connection string or type
+            if (templateConnection is NpgsqlConnection)
+            {
+                return new NpgsqlConnection(connectionString);
+            }
+            else if (templateConnection is SqlConnection)
+            {
+                return new SqlConnection(connectionString);
+            }
+            else if (templateConnection is MySqlConnection)
+            {
+                return new MySqlConnection(connectionString);
+            }
+            else if (templateConnection is OracleConnection)
+            {
+                return new OracleConnection(connectionString);
+            }
+            else
+            {
+                // Default to SQL Server for backward compatibility
+                return new SqlConnection(connectionString);
+            }
+        }
+
+        private static async Task OpenConnectionAsync(IDbConnection connection)
+        {
+            if (connection is DbConnection dbConnection)
+            {
+                await dbConnection.OpenAsync();
+            }
+            else
+            {
+                // Fallback for IDbConnection that doesn't have OpenAsync
+                await Task.Run(() => connection.Open());
+            }
+        }
+
+        #region Safe Query Execution Methods
+
+        /// <summary>
+        /// Executes a query safely and maps the result to a list of entities
+        /// </summary>
+        /// <summary>
+        /// Executes a query safely and maps the result to a list of entities
+        /// </summary>
+        public static async Task<IEnumerable<T>> QuerySafeAsync<T>(
+            this IDbConnection connectionTemplate,
+            string sql,
+            object param = null,
+            IDbTransaction transaction = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null)
+        {
+            if (connectionTemplate == null)
+                throw new ArgumentNullException(nameof(connectionTemplate));
+            if (string.IsNullOrWhiteSpace(sql))
+                throw new ArgumentException("SQL query cannot be empty", nameof(sql));
+
+            // If transaction is provided, use the existing connection
+            if (transaction != null)
+            {
+                return await connectionTemplate.QueryAsync<T>(
+                    sql, param, transaction, commandTimeout, commandType);
+            }
+            else
+            {
+                // No transaction - create new connection
+                using (var connection = CreateConnectionByType(connectionTemplate))
+                {
+                    try
+                    {
+                        await OpenConnectionAsync(connection);
+                        return await connection.QueryAsync<T>(
+                            sql, param, null, commandTimeout, commandType);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Executes a command safely and returns the number of affected rows
+        /// </summary>
+        /// <summary>
+        /// Executes a command safely and returns the number of affected rows
+        /// </summary>
+        public static async Task<int> ExecuteSafeAsync(
+            this IDbConnection connectionTemplate,
+            string sql,
+            object param = null,
+            IDbTransaction transaction = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null)
+        {
+            if (connectionTemplate == null)
+                throw new ArgumentNullException(nameof(connectionTemplate));
+            if (string.IsNullOrWhiteSpace(sql))
+                throw new ArgumentException("SQL query cannot be empty", nameof(sql));
+
+            // If transaction is provided, use the existing connection
+            if (transaction != null)
+            {
+                return await connectionTemplate.ExecuteAsync(
+                    sql, param, transaction, commandTimeout, commandType);
+            }
+            else
+            {
+                // No transaction - create new connection
+                using (var connection = CreateConnectionByType(connectionTemplate))
+                {
+                    try
+                    {
+                        await OpenConnectionAsync(connection);
+                        return await connection.ExecuteAsync(
+                            sql, param, null, commandTimeout, commandType);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Executes a query safely and returns the first result or default value
+        /// </summary>
+        public static async Task<T> QueryFirstOrDefaultSafeAsync<T>(this IDbConnection connection, string sql, object param = null,
+            IDbTransaction transaction = null, int? commandTimeout = null, CommandType? commandType = null)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("SQL query cannot be empty", nameof(sql));
+
+            try
+            {
+                return await connection.QueryFirstOrDefaultAsync<T>(sql, param, transaction, commandTimeout, commandType);
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a query safely and returns a single result
+        /// </summary>
+        public static async Task<T> QuerySingleOrDefaultSafeAsync<T>(this IDbConnection connection, string sql, object param = null,
+            IDbTransaction transaction = null, int? commandTimeout = null, CommandType? commandType = null)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("SQL query cannot be empty", nameof(sql));
+
+            try
+            {
+                return await connection.QuerySingleOrDefaultAsync<T>(sql, param, transaction, commandTimeout, commandType);
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a scalar query safely
+        /// </summary>
+        public static async Task<T> ExecuteScalarSafeAsync<T>(
+            this IDbConnection connectionTemplate,
+            string sql,
+            object param = null,
+            IDbTransaction transaction = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null)
+        {
+            if (connectionTemplate == null)
+                throw new ArgumentNullException(nameof(connectionTemplate));
+            if (string.IsNullOrWhiteSpace(sql))
+                throw new ArgumentException("SQL query cannot be empty", nameof(sql));
+
+            // If transaction is provided, use the existing connection
+            if (transaction != null)
+            {
+                return await connectionTemplate.ExecuteScalarAsync<T>(
+                    sql, param, transaction, commandTimeout, commandType);
+            }
+            else
+            {
+                // No transaction - create new connection
+                using (var connection = CreateConnectionByType(connectionTemplate))
+                {
+                    try
+                    {
+                        await OpenConnectionAsync(connection);
+                        return await connection.ExecuteScalarAsync<T>(
+                            sql, param, null, commandTimeout, commandType);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw;
+                    }
+                }
+            }
+        }
+
+        // Add to DatabaseHelper.cs
+        /// <summary>
+        /// Executes an operation with proper connection management
+        /// </summary>
+        public static async Task<T> WithConnectionAsync<T>(this IDbConnection connection, Func<IDbConnection, Task<T>> operation)
+        {
+
+            bool wasOpen = connection.State == ConnectionState.Open;
+
+            try
+            {
+                if (!wasOpen)
+                    connection.Open();
+
+                return await operation(connection);
+            }
+            catch
+            {
+                connection?.Close();
+                throw;
+            }
+            finally
+            {
+                if (!wasOpen && connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
+        }
+
+        /// <summary>
+        /// Executes an operation with proper connection management (no return value)
+        /// </summary>
+        public static async Task WithConnectionAsync(this IDbConnection connection, Func<IDbConnection, Task> operation)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (operation == null) throw new ArgumentNullException(nameof(operation));
+
+            bool wasOpen = connection.State == ConnectionState.Open;
+
+            try
+            {
+                if (!wasOpen)
+                    connection.Open();
+
+                await operation(connection);
+            }
+            finally
+            {
+                if (!wasOpen && connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
+        }
+
+        #endregion
+
+        #region Dictionary Result Methods
+
+        /// <summary>
+        /// Executes a query and returns the results as a list of dictionaries
+        /// </summary>
+        public static async Task<List<Dictionary<string, object>>> ExecuteQueryAsDictionariesAsync(
+            this IDbConnection connection,
+            string sql,
+            object parameters = null,
+            IDbTransaction transaction = null,
+            int commandTimeout = 120)
+        {
+            // Input validation
+            if (connection == null)
+                throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(sql))
+                throw new ArgumentException("SQL query cannot be empty", nameof(sql));
+
+            try
+            {
+                // ⭐ DYNAMIC FIX: Handle PostgreSQL schema issues
+                if (connection is NpgsqlConnection)
+                {
+                    // Method A: Auto-add schema prefixes (more reliable)
+                    sql = await AutoQualifyPostgresTables(connection, sql);
+
+                    // OR Method B: Set search_path (simpler but less precise)
+                    // await connection.ExecuteAsync("SET search_path TO xero, sp, public");
+                }
+
+                // Let Dapper handle everything - it's tested across all database providers
+                var results = await connection.QueryAsync(sql, parameters, transaction, commandTimeout);
+
+                // Convert results to dictionaries
+                var dictResults = new List<Dictionary<string, object>>();
+
+                foreach (var row in results)
+                {
+                    var dict = new Dictionary<string, object>();
+
+                    // Handle DapperRow (implements IDictionary<string, object>)
+                    if (row is IDictionary<string, object> rowDict)
+                    {
+                        foreach (var kvp in rowDict)
+                        {
+                            dict[kvp.Key] = kvp.Value is DBNull ? null : kvp.Value;
+                        }
+                    }
+                    else
+                    {
+                        // Fallback for edge cases (should rarely happen with Dapper)
+                        var type = row.GetType();
+                        foreach (var prop in type.GetProperties())
+                        {
+                            var value = prop.GetValue(row);
+                            dict[prop.Name] = value is DBNull ? null : value;
+                        }
+                    }
+
+                    dictResults.Add(dict);
+                }
+
+                return dictResults;
+            }
+            catch (Exception ex)
+            {
+                // Enhance error message with database context
+                var dbType = connection.GetType().Name;
+                var errorMessage = $"Error executing query on {dbType}: {ex.Message}";
+
+                // Add helpful hints for common database-specific errors
+                if (dbType.Contains("Oracle") && ex.Message.Contains("ORA-"))
+                {
+                    errorMessage += "\nNote: Oracle parameters should use ':' prefix (e.g., :parameterName)";
+                }
+                else if (dbType.Contains("Npgsql") && ex.Message.Contains("42703")) // PostgreSQL undefined column
+                {
+                    errorMessage += "\nNote: PostgreSQL is case-sensitive for column names";
+                }
+
+                throw new InvalidOperationException(errorMessage, ex);
+            }
+        }
+
+
+
+        /// <summary>
+        /// Converts dynamic query results to a list of dictionaries
+        /// </summary>
+        public static List<Dictionary<string, object>> ConvertToDictionaries(IEnumerable<dynamic> results)
+        {
+            if (results == null) throw new ArgumentNullException(nameof(results));
+
+            var dictResults = new List<Dictionary<string, object>>();
+
+            foreach (var item in results)
+            {
+                var dict = new Dictionary<string, object>();
+
+                if (item is IDictionary<string, object> dynamicItem)
+                {
+                    foreach (var prop in dynamicItem)
+                    {
+                        dict[prop.Key] = prop.Value;
+                    }
+                }
+                else
+                {
+                    // Handle non-dynamic objects using reflection
+                    foreach (var prop in item.GetType().GetProperties())
+                    {
+                        dict[prop.Name] = prop.GetValue(item);
+                    }
+                }
+
+                dictResults.Add(dict);
+            }
+
+            return dictResults;
+        }
+
+        #endregion
+
+        #region Transaction Helpers
+
+        /// <summary>
+        /// Executes multiple operations within a transaction
+        /// </summary>
+        public static async Task<TResult> ExecuteInTransactionAsync<TResult>(
+            this IDbConnection connection, Func<IDbTransaction, Task<TResult>> action)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            bool wasOpen = connection.State == ConnectionState.Open;
+
+            try
+            {
+                if (!wasOpen)
+                    connection.Open();
+
+                using var transaction = connection.BeginTransaction();
+                try
+                {
+                    var result = await action(transaction);
+                    transaction.Commit();
+                    return result;
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
+                }
+            }
+            finally
+            {
+                if (!wasOpen && connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
+        }
+
+        /// <summary>
+        /// Executes multiple operations within a transaction with no return value
+        /// </summary>
+        public static async Task ExecuteInTransactionAsync(
+            this IDbConnection connection, Func<IDbTransaction, Task> action)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            bool wasOpen = connection.State == ConnectionState.Open;
+
+            try
+            {
+                if (!wasOpen)
+                    connection.Open();
+
+                using var transaction = connection.BeginTransaction();
+                try
+                {
+                    await action(transaction);
+                    transaction.Commit();
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
+                }
+            }
+            finally
+            {
+                if (!wasOpen && connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
+        }
+
+        #endregion
+
+        #region Application DB Helper Methods
+
+        /// <summary>
+        /// Gets a database ID by its name from the application database
+        /// </summary>
+        public static async Task<int> GetDatabaseIdByNameAsync(this IDbConnection connection, string databaseName)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(databaseName)) throw new ArgumentException("Database name cannot be empty", nameof(databaseName));
+
+            try
+            {
+                const string sql = "SELECT DatabaseID FROM Databases WHERE Name = @Name AND IsActive = 1";
+                var dbId = await connection.QueryFirstOrDefaultSafeAsync<int?>(sql, new { Name = databaseName });
+                return dbId ?? 0;
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Checks if a database exists by its ID
+        /// </summary>
+        public static async Task<bool> DatabaseExistsAsync(this IDbConnection connection, int databaseId)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (databaseId <= 0) throw new ArgumentException("Invalid database ID", nameof(databaseId));
+
+            try
+            {
+                const string sql = "SELECT COUNT(1) FROM Databases WHERE DatabaseID = @DatabaseID AND IsActive = 1";
+                var count = await connection.ExecuteScalarSafeAsync<int>(sql, new { DatabaseID = databaseId });
+                return count > 0;
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets a database by its ID from the application database
+        /// </summary>
+        public static async Task<Database> GetDatabaseByIdAsync(this IDbConnection connection, int databaseId)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (databaseId <= 0) throw new ArgumentException("Invalid database ID", nameof(databaseId));
+
+            try
+            {
+                const string sql = @"
+                    SELECT 
+                        d.*, 
+                        dt.TypeName as DatabaseTypeName
+                    FROM Databases d
+                    LEFT JOIN DatabaseTypes dt ON d.TypeID = dt.TypeID
+                    WHERE d.DatabaseID = @DatabaseID";
+
+                return await connection.QueryFirstOrDefaultSafeAsync<Database>(
+                    sql, new { DatabaseID = databaseId });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+
+
+        /// <summary>
+        /// Gets all databases with their type names from the application database
+        /// </summary>
+        public static async Task<IEnumerable<Database>> GetAllDatabasesAsync(this IDbConnection connection)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+
+            try
+            {
+                const string sql = @"
+            SELECT 
+                d.*, 
+                dt.TypeName as DatabaseTypeName
+            FROM Databases d
+            LEFT JOIN DatabaseTypes dt ON d.TypeID = dt.TypeID";
+
+                return await connection.QuerySafeAsync<Database>(sql);
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+        /// <summary>
+        /// Gets a database by its name from the application database
+        /// </summary>
+        public static async Task<Database> GetDatabaseByNameAsync(this IDbConnection connection, string databaseName)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(databaseName)) throw new ArgumentException("Database name cannot be empty", nameof(databaseName));
+
+            try
+            {
+                const string sql = @"
+                    SELECT 
+                        d.*, 
+                        dt.TypeName as DatabaseTypeName
+                    FROM Databases d
+                    LEFT JOIN DatabaseTypes dt ON d.TypeID = dt.TypeID
+                    WHERE d.Name = @Name";
+
+                return await connection.QueryFirstOrDefaultSafeAsync<Database>(
+                    sql, new { Name = databaseName });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets database type name by its ID from the application database
+        /// </summary>
+
+        /// <summary>
+        /// Converts parameters to Oracle-compatible format with : prefix
+        /// </summary>
+        public static DynamicParameters ToOracleParameters(this object parameters)
+        {
+            var dynamicParams = new DynamicParameters();
+
+            if (parameters == null)
+                return dynamicParams;
+
+            foreach (var prop in parameters.GetType().GetProperties())
+            {
+                var paramName = prop.Name.StartsWith(":") ? prop.Name : ":" + prop.Name;
+                var value = prop.GetValue(parameters);
+                dynamicParams.Add(paramName, value);
+            }
+
+            return dynamicParams;
+        }
+        #endregion
+
+        #region Metadata Helpers
+
+        // ⭐ NEW: Auto-qualify PostgreSQL tables with schemas
+        private static async Task<string> AutoQualifyPostgresTables(IDbConnection connection, string sql)
+        {
+            // Extract table names from SQL
+            var tableNames = ExtractTableNamesFromSql(sql);
+            if (tableNames.Count == 0) return sql;
+
+            // Get actual schemas for these tables
+            var tableSchemas = await FindTableSchemas(connection, tableNames);
+
+            // Modify SQL to add schema prefixes
+            return ApplySchemaPrefixes(sql, tableSchemas);
+        }
+
+        // ⭐ Extract table names from SQL (simple regex)
+        private static List<string> ExtractTableNamesFromSql(string sql)
+        {
+            var tables = new List<string>();
+
+            // Remove quoted strings first to avoid matching inside them
+            var sqlWithoutStrings = Regex.Replace(sql, @"'[^']*'", "''");
+
+            // Find table names after FROM, JOIN, etc.
+            var patterns = new[]
+            {
+        @"\bFROM\s+([\w""]+)",           // FROM table
+        @"\bJOIN\s+([\w""]+)",           // JOIN table
+        @"\bINTO\s+([\w""]+)",           // INSERT INTO table
+        @"\bUPDATE\s+([\w""]+)",         // UPDATE table
+    };
+
+            foreach (var pattern in patterns)
+            {
+                var matches = Regex.Matches(sqlWithoutStrings, pattern, RegexOptions.IgnoreCase);
+                foreach (Match match in matches)
+                {
+                    var tableName = match.Groups[1].Value.Trim('"');
+                    if (!tables.Contains(tableName, StringComparer.OrdinalIgnoreCase))
+                        tables.Add(tableName);
+                }
+            }
+
+            return tables;
+        }
+
+        // ⭐ Find which schema each table belongs to
+        private static async Task<Dictionary<string, string>> FindTableSchemas(
+            IDbConnection connection, List<string> tableNames)
+        {
+            var result = new Dictionary<string, string>();
+
+            if (tableNames.Count == 0) return result;
+
+            // Build query with parameters
+            var paramList = string.Join(", ", tableNames.Select((_, i) => $"@p{i}"));
+            var sql = $@"
+        SELECT DISTINCT ON (table_name)
+            table_name,
+            table_schema
+        FROM 
+            information_schema.tables
+        WHERE 
+            table_name IN ({paramList})
+            AND table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY 
+            table_name,
+            -- Prefer non-public schemas first
+            CASE WHEN table_schema = 'public' THEN 2 ELSE 1 END";
+
+            // Create parameters
+            var parameters = new DynamicParameters();
+            for (int i = 0; i < tableNames.Count; i++)
+            {
+                parameters.Add($"p{i}", tableNames[i]);
+            }
+
+            var rows = await connection.QueryAsync<(string table_name, string table_schema)>(sql, parameters);
+
+            foreach (var row in rows)
+            {
+                result[row.table_name] = row.table_schema;
+            }
+
+            return result;
+        }
+
+        // ⭐ Apply schema prefixes to SQL
+        private static string ApplySchemaPrefixes(string sql, Dictionary<string, string> tableSchemas)
+        {
+            if (tableSchemas.Count == 0) return sql;
+
+            var result = sql;
+
+            foreach (var kvp in tableSchemas)
+            {
+                var tableName = kvp.Key;
+                var schema = kvp.Value;
+
+                if (!string.IsNullOrEmpty(schema) && schema != "public")
+                {
+                    // Replace table references with schema.table
+                    // Be careful with quoted identifiers
+                    var quotedTable = $"\"{tableName}\"";
+                    var pattern = $@"\b({Regex.Escape(tableName)}|{Regex.Escape(quotedTable)})\b";
+                    var replacement = $"{schema}.{tableName}";
+
+                    result = Regex.Replace(
+                        result,
+                        pattern,
+                        replacement,
+                        RegexOptions.IgnoreCase);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Gets tables for a database by ID
+        /// </summary>
+        public static async Task<IEnumerable<Table>> GetTablesByDatabaseIdAsync(
+            this IDbConnection connection, int databaseId)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (databaseId <= 0) throw new ArgumentException("Invalid database ID", nameof(databaseId));
+
+            try
+            {
+                const string sql = "SELECT * FROM Tables WHERE DatabaseID = @DatabaseID";
+                return await connection.QuerySafeAsync<Table>(sql, new { DatabaseID = databaseId });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets columns for a table by ID
+        /// </summary>
+        public static async Task<IEnumerable<Column>> GetColumnsByTableIdAsync(
+            this IDbConnection connection, int tableId)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (tableId <= 0) throw new ArgumentException("Invalid table ID", nameof(tableId));
+
+            try
+            {
+                const string sql = "SELECT * FROM Columns WHERE TableID = @TableID";
+                return await connection.QuerySafeAsync<Column>(sql, new { TableID = tableId });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets relationships for a table by ID
+        /// </summary>
+        public static async Task<IEnumerable<Relationship>> GetRelationshipsByTableIdAsync(
+            this IDbConnection connection, int tableId)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (tableId <= 0) throw new ArgumentException("Invalid table ID", nameof(tableId));
+
+            try
+            {
+                const string sql = "SELECT * FROM Relationships WHERE TableID = @TableID OR RelatedTableID = @TableID";
+                return await connection.QuerySafeAsync<Relationship>(sql, new { TableID = tableId });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        // Add to DatabaseHelper.cs
+        /// <summary>
+        /// Gets all columns for multiple tables in a single query
+        /// </summary>
+        public static async Task<Dictionary<int, List<Column>>> GetColumnsForTablesAsync(
+            this IDbConnection connection, IEnumerable<int> tableIds)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (tableIds == null || !tableIds.Any())
+                return new Dictionary<int, List<Column>>();
+
+            try
+            {
+                // Use table-valued parameter or IN clause depending on DB type
+                string sql;
+                object parameters;
+
+                if (connection is SqlConnection)
+                {
+                    // SQL Server can handle larger sets with a direct IN clause 
+                    sql = "SELECT * FROM Columns WHERE TableID IN @TableIDs";
+                    parameters = new { TableIDs = tableIds };
+                }
+                else
+                {
+                    // For other DBs, build a parameter list dynamically
+                    var paramNames = string.Join(",", tableIds.Select((_, i) => $"@p{i}"));
+                    sql = $"SELECT * FROM Columns WHERE TableID IN ({paramNames})";
+
+                    var dynamicParams = new DynamicParameters();
+                    int i = 0;
+                    foreach (var id in tableIds)
+                    {
+                        dynamicParams.Add($"p{i}", id);
+                        i++;
+                    }
+                    parameters = dynamicParams;
+                }
+
+                var allColumns = await connection.QuerySafeAsync<Column>(sql, parameters);
+
+                // Group columns by TableID
+                return allColumns.GroupBy(c => c.TableID)
+                                 .ToDictionary(g => g.Key, g => g.ToList());
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets all relationships for multiple tables in a single query
+        /// </summary>
+        public static async Task<Dictionary<int, List<Relationship>>> GetRelationshipsForTablesAsync(
+            this IDbConnection connection, IEnumerable<int> tableIds)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (tableIds == null || !tableIds.Any())
+                return new Dictionary<int, List<Relationship>>();
+
+            try
+            {
+                // Use table-valued parameter or IN clause depending on DB type
+                string sql;
+                object parameters;
+
+                if (connection is SqlConnection)
+                {
+                    // SQL Server approach
+                    sql = "SELECT * FROM Relationships WHERE TableID IN @TableIDs OR RelatedTableID IN @TableIDs";
+                    parameters = new { TableIDs = tableIds };
+                }
+                else
+                {
+                    // For other DBs, build a parameter list dynamically
+                    var paramNames = string.Join(",", tableIds.Select((_, i) => $"@p{i}"));
+                    sql = $"SELECT * FROM Relationships WHERE TableID IN ({paramNames}) OR RelatedTableID IN ({paramNames})";
+
+                    var dynamicParams = new DynamicParameters();
+                    int i = 0;
+                    foreach (var id in tableIds)
+                    {
+                        dynamicParams.Add($"p{i}", id);
+                        i++;
+                    }
+                    parameters = dynamicParams;
+                }
+
+                var allRelationships = await connection.QuerySafeAsync<Relationship>(sql, parameters);
+
+                // Create a mapping where each relationship appears in both tables' lists
+                var resultMap = new Dictionary<int, List<Relationship>>();
+
+                foreach (var relationship in allRelationships)
+                {
+                    // Add to source table
+                    if (!resultMap.ContainsKey(relationship.TableID))
+                        resultMap[relationship.TableID] = new List<Relationship>();
+                    resultMap[relationship.TableID].Add(relationship);
+
+                    // Add to related table (if different)
+                    if (relationship.TableID != relationship.RelatedTableID)
+                    {
+                        if (!resultMap.ContainsKey(relationship.RelatedTableID))
+                            resultMap[relationship.RelatedTableID] = new List<Relationship>();
+                        resultMap[relationship.RelatedTableID].Add(relationship);
+                    }
+                }
+
+                return resultMap;
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets complete database metadata in a minimal number of database calls
+        /// </summary>
+        /// <summary>
+        /// Gets complete database metadata in a minimal number of database calls
+        /// </summary>
+        public static async Task<DatabaseMetadataDto> GetDatabaseMetadataAsync(
+            this IDbConnection connection, int databaseId)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (databaseId <= 0) throw new ArgumentException("Invalid database ID", nameof(databaseId));
+
+            try
+            {
+                // Use WithConnectionAsync to ensure proper connection management
+                return await connection.WithConnectionAsync(async conn =>
+                {
+                    // 1. Get all tables
+
+                    var tables = await conn.GetTablesByDatabaseIdAsync(databaseId);
+                    var tablesList = tables.ToList();
+
+                    if (tablesList.Count == 0)
+                        return new DatabaseMetadataDto { DatabaseID = databaseId, Tables = new List<TableMetadataDto>() };
+
+                    // 2. Get all table IDs
+                    var tableIds = tablesList.Select(t => t.TableID).ToList();
+
+                    // 3. Get all columns and relationships in just two queries
+                    var columnsTask = conn.GetColumnsForTablesAsync(tableIds);
+                    var relationshipsTask = conn.GetRelationshipsForTablesAsync(tableIds);
+
+                    // Wait for both tasks to complete
+                    await Task.WhenAll(columnsTask, relationshipsTask);
+
+                    var allColumns = await columnsTask;
+                    var allRelationships = await relationshipsTask;
+
+                    // 4. Assemble the result
+                    var tableMetadata = new List<TableMetadataDto>();
+                    foreach (var table in tablesList)
+                    {
+                        tableMetadata.Add(new TableMetadataDto
+                        {
+                            Table = table,
+                            Columns = allColumns.TryGetValue(table.TableID, out var columns) ? columns : new List<Column>(),
+                            Relationships = allRelationships.TryGetValue(table.TableID, out var relationships) ? relationships : new List<Relationship>()
+                        });
+                    }
+
+                    return new DatabaseMetadataDto
+                    {
+                        DatabaseID = databaseId,
+                        Tables = tableMetadata
+                    };
+                });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region Bulk Operations
+
+        /// <summary>
+        /// Bulk inserts data into a table
+        /// </summary>
+        public static async Task<int> BulkInsertAsync<T>(
+            this IDbConnection connection, string tableName, IEnumerable<T> data,
+            IDbTransaction transaction = null, int batchSize = 1000)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(tableName)) throw new ArgumentException("Table name cannot be empty", nameof(tableName));
+            if (data == null) throw new ArgumentNullException(nameof(data));
+
+            int totalInserted = 0;
+            var dataList = data as List<T> ?? new List<T>(data);
+
+            if (dataList.Count == 0)
+                return 0;
+
+            try
+            {
+                // Get property names from first item
+                var properties = typeof(T).GetProperties();
+                var columnNames = properties.Select(p => p.Name).ToList();
+
+                // Create batches
+                var batches = new List<List<T>>();
+                for (int i = 0; i < dataList.Count; i += batchSize)
+                {
+                    batches.Add(dataList.Skip(i).Take(batchSize).ToList());
+                }
+
+                foreach (var batch in batches)
+                {
+                    // Create bulk insert SQL
+                    var valuePlaceholders = new List<string>();
+                    var parameters = new DynamicParameters();
+                    int itemIndex = 0;
+
+                    foreach (var item in batch)
+                    {
+                        var valueClause = new List<string>();
+
+                        foreach (var prop in properties)
+                        {
+                            string paramName = $"@p{itemIndex}_{prop.Name}";
+                            valueClause.Add(paramName);
+                            parameters.Add(paramName, prop.GetValue(item));
+                        }
+
+                        valuePlaceholders.Add($"({string.Join(", ", valueClause)})");
+                        itemIndex++;
+                    }
+
+                    string sql = $@"
+                        INSERT INTO {tableName} 
+                        ({string.Join(", ", columnNames)})
+                        VALUES 
+                        {string.Join(",\n", valuePlaceholders)}";
+
+                    totalInserted += await connection.ExecuteAsync(sql, parameters, transaction);
+                }
+
+                return totalInserted;
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region Utility Methods
+
+
+        /// <summary>
+        /// Gets database schema information that works across different database types
+        /// </summary>
+        public static async Task<IEnumerable<dynamic>> GetDatabaseSchemaAsync(this IDbConnection connection)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+
+            bool wasOpen = connection.State == ConnectionState.Open;
+
+            try
+            {
+                // Ensure the connection is open
+                if (!wasOpen)
+                    connection.Open();
+
+                string sql;
+
+                if (connection.GetType().Name.Contains("SqlConnection"))
+                {
+                    // SQL Server
+                    sql = @"
+                        SELECT 
+                            t.TABLE_NAME,
+                            c.COLUMN_NAME,
+                            c.DATA_TYPE,
+                            c.IS_NULLABLE,
+                            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
+                        FROM 
+                            INFORMATION_SCHEMA.TABLES t
+                        INNER JOIN 
+                            INFORMATION_SCHEMA.COLUMNS c ON c.TABLE_NAME = t.TABLE_NAME
+                        LEFT JOIN 
+                            (
+                                SELECT ku.TABLE_NAME, ku.COLUMN_NAME
+                                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                                INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON ku.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+                                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                            ) pk ON pk.TABLE_NAME = t.TABLE_NAME AND pk.COLUMN_NAME = c.COLUMN_NAME
+                        WHERE 
+                            t.TABLE_TYPE = 'BASE TABLE'
+                        ORDER BY 
+                            t.TABLE_NAME, c.ORDINAL_POSITION";
+                }
+                else if (connection.GetType().Name.Contains("MySqlConnection"))
+                {
+                    // MySQL
+                    sql = @"
+                        SELECT 
+                            t.TABLE_NAME,
+                            c.COLUMN_NAME,
+                            c.DATA_TYPE,
+                            c.IS_NULLABLE,
+                            CASE WHEN c.COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
+                        FROM 
+                            INFORMATION_SCHEMA.TABLES t
+                        INNER JOIN 
+                            INFORMATION_SCHEMA.COLUMNS c ON c.TABLE_NAME = t.TABLE_NAME
+                        WHERE 
+                            t.TABLE_SCHEMA = DATABASE() AND
+                            t.TABLE_TYPE = 'BASE TABLE'
+                        ORDER BY 
+                            t.TABLE_NAME, c.ORDINAL_POSITION";
+                }
+                else if (connection.GetType().Name.Contains("OracleConnection"))
+                {
+                    // Oracle
+                    sql = @"
+                        SELECT 
+                            t.TABLE_NAME,
+                            c.COLUMN_NAME,
+                            c.DATA_TYPE,
+                            CASE WHEN c.NULLABLE = 'Y' THEN 'YES' ELSE 'NO' END AS IS_NULLABLE,
+                            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
+                        FROM 
+                            USER_TABLES t
+                        INNER JOIN 
+                            USER_TAB_COLUMNS c ON c.TABLE_NAME = t.TABLE_NAME
+                        LEFT JOIN 
+                            (
+                                SELECT ucc.TABLE_NAME, ucc.COLUMN_NAME
+                                FROM USER_CONSTRAINTS uc
+                                INNER JOIN USER_CONS_COLUMNS ucc ON ucc.CONSTRAINT_NAME = uc.CONSTRAINT_NAME
+                                WHERE uc.CONSTRAINT_TYPE = 'P'
+                            ) pk ON pk.TABLE_NAME = t.TABLE_NAME AND pk.COLUMN_NAME = c.COLUMN_NAME
+                        ORDER BY 
+                            t.TABLE_NAME, c.COLUMN_ID";
+                }
+                else
+                {
+                    throw new NotSupportedException($"Database type {connection.GetType().Name} not supported for schema retrieval");
+                }
+
+                return await connection.QueryAsync(sql);
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+            finally
+            {
+                // Only close the connection if we opened it
+                if (!wasOpen && connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
+        }
+
+        /// <summary>
+        /// Updates the LastConnectionStatus and LastTransactionDate for a database
+        /// </summary>
+        public static async Task UpdateConnectionStatusAsync(this IDbConnection connection, int databaseId, bool status)
+        {
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (databaseId <= 0) throw new ArgumentException("Invalid database ID", nameof(databaseId));
+
+            try
+            {
+                const string query = @"
+                    UPDATE Databases 
+                    SET LastConnectionStatus = @Status, LastTransactionDate = GETDATE()
+                    WHERE DatabaseID = @DatabaseID";
+
+                await connection.ExecuteSafeAsync(query, new
+                {
+                    DatabaseID = databaseId,
+                    Status = status
+                });
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Sanitizes a SQL identifier to help prevent SQL injection
+        /// </summary>
+        public static string SanitizeSqlIdentifier(string identifier)
+        {
+            if (string.IsNullOrWhiteSpace(identifier))
+                return string.Empty;
+
+            // Replace any non-alphanumeric characters except underscores with empty string
+            return System.Text.RegularExpressions.Regex.Replace(identifier, "[^a-zA-Z0-9_]", "");
+        }
+
+        #endregion
+    }
+}

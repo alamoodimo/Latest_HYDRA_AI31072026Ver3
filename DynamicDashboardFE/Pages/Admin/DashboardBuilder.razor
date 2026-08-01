@@ -1,0 +1,4068 @@
+﻿@page "/dashboard/builder"
+@page "/dashboard/builder/{DashboardId:int}"
+@using DynamicDashboardCommon.Models
+@using DynamicDashboardCommon.Enums
+
+@using System.Text.Json
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+
+<PageTitle>Dashboard Builder</PageTitle>
+
+<div class="dashboard-builder">
+    <!-- ============================================ -->
+    <!-- HEADER SECTION -->
+    <!-- ============================================ -->
+    <!-- ============================================ -->
+    <!-- HEADER SECTION -->
+    <!-- ============================================ -->
+    <div class="builder-header">
+        <div class="builder-header-left">
+            <!-- Dashboard Title and AI Buttons -->
+            <div class="dashboard-title-section">
+                <i class="fas fa-chart-line me-2"></i>
+                <h5 class="mb-0">@(dashboard?.Title ?? "Untitled Dashboard")</h5>
+                @if (dashboard != null)
+                {
+                    @if (dashboard.DashboardID > 0)
+                    {
+                        <span class="badge bg-success ms-2">
+                            <i class="fas fa-check-circle me-1"></i>Saved
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning text-dark ms-2">
+                            <i class="fas fa-exclamation-circle me-1"></i>Unsaved
+                        </span>
+                    }
+                }
+            </div>
+
+            <!-- AI Actions moved here -->
+            <div class="ai-header-buttons">
+                <button class="btn btn-success" @onclick="ShowTemplateModal" disabled="@(dashboard.DatabaseID <= 0)">
+                    <i class="fas fa-magic me-2"></i>AI Generate Dashboard
+                </button>
+                <button class="btn btn-outline-primary" @onclick="ShowAddComponentModal" disabled="@(dashboard.DatabaseID <= 0)">
+                    <i class="fas fa-robot me-2"></i>AI Create Component
+                </button>
+            </div>
+        </div>
+
+        <div class="builder-header-center">
+            <!-- Dashboard Actions -->
+            @if (dashboard != null)
+            {
+                <div class="btn-group me-2" role="group">
+                    <button class="btn btn-success" @onclick="SaveDashboard" disabled="@(!CanSave())" title="Save dashboard">
+                        <i class="fas fa-save me-1"></i>
+                        <span class="btn-text">Save</span>
+                    </button>
+
+                    @if (dashboard.Components != null && dashboard.Components.Any() && dashboard.DatabaseID > 0)
+                    {
+                        <button class="btn btn-primary" @onclick="LoadAllComponentsData" disabled="@isLoadingAllData" title="Load data for all components">
+                            @if (isLoadingAllData)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span class="btn-text">Loading...</span>
+                            }
+                            else
+                            {
+                                <i class="fas fa-play me-1"></i>
+                                <span class="btn-text">Load Data</span>
+                            }
+                        </button>
+                    }
+                </div>
+
+                <div class="btn-group me-2" role="group">
+                    <button class="btn @(isPreviewMode ? "btn-secondary" : "btn-outline-secondary")"
+                            @onclick="TogglePreviewMode"
+                            disabled="@(!dashboard.Components.Any())"
+                            title="@(isPreviewMode ? "Switch to Design Mode" : "Preview Dashboard")">
+                        <i class="fas fa-@(isPreviewMode ? "edit" : "eye") me-1"></i>
+                        <span class="btn-text">@(isPreviewMode ? "Design" : "Preview")</span>
+                    </button>
+                </div>
+
+                @if (!isPreviewMode)
+                {
+                    <div class="btn-group me-2" role="group">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ZoomOut" disabled="@(zoomLevel <= 0.5)" title="Zoom Out">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary disabled zoom-display" title="Current Zoom Level">
+                            <span>@((int)(zoomLevel * 100))%</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ZoomIn" disabled="@(zoomLevel >= 1.5)" title="Zoom In">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ResetZoom" title="Reset Zoom to 100%">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </button>
+
+                        <button class="btn btn-sm @(showGridLines ? "btn-primary" : "btn-outline-secondary")"
+                                @onclick="ToggleGridLines"
+                                title="@(showGridLines ? "Hide Grid Lines" : "Show Grid Lines")">
+                            <i class="fas fa-th"></i>
+                        </button>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    data-bs-toggle="dropdown"
+                                    title="Grid Snap Settings">
+                                <i class="fas fa-magnet"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item @(gridSnapSize == 1 ? "active" : "")"
+                                       @onclick="() => SetGridSnapSize(1)">No Snap</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item @(gridSnapSize == 2 ? "active" : "")"
+                                       @onclick="() => SetGridSnapSize(2)">2× Grid</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item @(gridSnapSize == 3 ? "active" : "")"
+                                       @onclick="() => SetGridSnapSize(3)">3× Grid</a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="builder-header-right">
+            @if (dashboard != null)
+            {
+                <!-- Sidebar Toggle Button -->
+                <button class="btn btn-outline-secondary me-2" @onclick="ToggleSidebar" title="@(showSidebar ? "Hide Sidebar" : "Show Sidebar")">
+                    <i class="fas fa-@(showSidebar ? "chevron-left" : "chevron-right")"></i>
+                </button>
+
+                <div class="btn-group" role="group">
+                    <button class="btn btn-outline-secondary" @onclick="ShowDashboardSettings" title="Dashboard Settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+
+                    @if (dashboard.Components != null && dashboard.Components.Any())
+                    {
+                        <button class="btn btn-outline-secondary" @onclick="AutoArrangeComponents" title="Auto Arrange Components">
+                            <i class="fas fa-th"></i>
+                        </button>
+                    }
+
+                    <button class="btn btn-outline-danger" @onclick="CloseDashboard" title="Close Dashboard Builder">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <!-- Keyboard Shortcuts Help Button -->
+                <div class="btn-group ms-2" role="group">
+                    <button class="btn btn-outline-secondary"
+                            @onclick="ShowKeyboardShortcuts"
+                            title="Keyboard Shortcuts">
+                        <i class="fas fa-keyboard"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- MAIN CONTENT -->
+    <!-- ============================================ -->
+    <div class="builder-content @(isPreviewMode ? "preview-mode" : "")
+     @(selectedComponentId > 0 ? "with-properties" : "full-width")
+     @(!showSidebar ? "sidebar-hidden" : "")">
+        @if (isPreviewMode)
+        {
+            <!-- ============================================ -->
+            <!-- PREVIEW MODE -->
+            <!-- ============================================ -->
+            <div class="preview-fullscreen">
+                <div class="preview-header">
+                    <div>
+                        <h4 class="mb-1">@dashboard.Title</h4>
+                        @if (!string.IsNullOrEmpty(dashboard.Description))
+                        {
+                            <p class="text-muted mb-0 small">@dashboard.Description</p>
+                        }
+                    </div>
+                    <button class="btn btn-secondary" @onclick="TogglePreviewMode">
+                        <i class="fas fa-edit me-2"></i>Exit Preview
+                    </button>
+                </div>
+
+                <div class="preview-grid" style="grid-template-rows: repeat(@GetGridHeight(), 100px);">
+                    @foreach (var component in dashboard.Components.Where(c => c.IsVisible))
+                    {
+                        <div class="dashboard-component"
+                             style="grid-column: @(component.GridX + 1) / span @component.GridWidth;
+                                            grid-row: @(component.GridY + 1) / span @component.GridHeight;">
+                            <div class="component-header">
+                                <span class="component-title">@component.Title</span>
+                            </div>
+                            <div class="component-body">
+                                @if (IsComponentLoading(component.ComponentID))
+                                {
+                                    <div class="component-loading">
+                                        <div class="spinner-border text-primary mb-2"></div>
+                                        <p class="text-muted small mb-0">Loading data...</p>
+                                    </div>
+                                }
+                                else if (componentData.ContainsKey(component.ComponentID) && componentData[component.ComponentID].Any())
+                                {
+                                    @switch (component.DataViewingTypeID)
+                                    {
+                                        case 1: // Table
+                                            var tableData = GetComponentData(component.ComponentID);
+                                            var columns = tableData.First().Keys.ToList();
+                                            <div class="table-responsive" style="max-height: 100%; overflow: auto;">
+                                                <table class="table table-sm table-hover mb-0">
+                                                    <thead class="sticky-top bg-light">
+                                                        <tr>
+                                                            @foreach (var col in columns.Take(6))
+                                                            {
+                                                                <th style="font-size: 17px;">@col</th>
+                                                            }
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var row in tableData)
+                                                        {
+                                                            <tr>
+                                                                @foreach (var col in columns.Take(6))
+                                                                {
+                                                                    <td style="font-size: 17px;">@(row[col]?.ToString() ?? "-")</td>
+                                                                }
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            break;
+
+                                        case 3: // KPI
+                                            var kpiData = GetComponentData(component.ComponentID);
+                                            var kpiValue = kpiData.FirstOrDefault()?.Values.FirstOrDefault();
+                                            <div class="kpi-display">
+                                                <div class="kpi-value">@FormatNumber(kpiValue)</div>
+                                                <div class="kpi-label">@component.Title</div>
+                                            </div>
+                                            break;
+
+                                        case 4: // Chart
+                                                <div id="chart-@component.ComponentID" style="height: 100%; min-height: 200px;"></div>
+                                            break;
+
+                                        case 2: // Label
+                                                <div class="label-display text-center p-3">
+                                                    <h5>@component.Title</h5>
+                                                @if (!string.IsNullOrEmpty(component.Description))
+                                                {
+                                                    <p class="text-muted mb-0">@component.Description</p>
+                                                }
+                                            </div>
+                                            break;
+
+                                        default:
+                                            <div class="text-center text-muted p-3">
+                                                <i class="fas fa-cube fa-2x mb-2"></i>
+                                                <p class="mb-0">Component</p>
+                                            </div>
+                                            break;
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="component-placeholder">
+                                        <i class="fas @GetComponentIcon(component.DataViewingTypeID) fa-3x mb-3 text-muted"></i>
+                                        <p class="text-muted mb-1 fw-bold">@GetComponentTypeName(component.DataViewingTypeID)</p>
+                                        <small class="text-muted">Configure SQL in properties panel</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- ============================================ -->
+            <!-- DESIGN MODE WITH DRAG & DROP -->
+            <!-- ============================================ -->
+            <!-- LEFT SIDEBAR - COMPONENT LIBRARY -->
+            <!-- LEFT SIDEBAR - COMPONENT LIBRARY -->
+            <div class="builder-sidebar builder-sidebar-left @(!showSidebar ? "collapsed" : "")">
+                @if (showSidebar)
+                {
+                    <div class="sidebar-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-puzzle-piece me-2"></i>Components
+                        </h6>
+                        <button class="btn-close-panel" @onclick="ToggleSidebar" title="Hide Sidebar">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                    </div>
+
+                    <div class="sidebar-body">
+                        <div class="drag-instructions mb-3">
+                            <small class="text-muted">
+                                <i class="fas fa-hand-pointer me-1"></i>
+                                Drag components to canvas or click to add
+                            </small>
+                        </div>
+
+                        <!-- Charts Category -->
+                        <div class="component-category mb-3">
+                            <div class="category-title">
+                                <i class="fas fa-chart-bar me-1"></i>Charts
+                            </div>
+                            @foreach (var item in dragComponentLibrary.Where(c => c.DataViewingTypeID == 4))
+                            {
+                                <div class="drag-component-item"
+                                     draggable="true"
+                                     @ondragstart="(e) => OnDragStartFromLibrary(e, item)"
+                                     @ondragend="OnDragEnd"
+                                     @onclick="() => QuickAddComponent(item)"
+                                     style="--item-color: @item.Color">
+                                    <div class="drag-item-icon">
+                                        <i class="fas @item.Icon"></i>
+                                    </div>
+                                    <div class="drag-item-info">
+                                        <span class="drag-item-title">@item.Title</span>
+                                        <span class="drag-item-size">@item.DefaultWidth × @item.DefaultHeight</span>
+                                    </div>
+                                    <div class="drag-item-handle">
+                                        <i class="fas fa-grip-vertical"></i>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Data Display Category -->
+                        <div class="component-category mb-3">
+                            <div class="category-title">
+                                <i class="fas fa-table me-1"></i>Data Display
+                            </div>
+                            @foreach (var item in dragComponentLibrary.Where(c => c.DataViewingTypeID == 1))
+                            {
+                                <div class="drag-component-item"
+                                     draggable="true"
+                                     @ondragstart="(e) => OnDragStartFromLibrary(e, item)"
+                                     @ondragend="OnDragEnd"
+                                     @onclick="() => QuickAddComponent(item)"
+                                     style="--item-color: @item.Color">
+                                    <div class="drag-item-icon">
+                                        <i class="fas @item.Icon"></i>
+                                    </div>
+                                    <div class="drag-item-info">
+                                        <span class="drag-item-title">@item.Title</span>
+                                        <span class="drag-item-size">@item.DefaultWidth × @item.DefaultHeight</span>
+                                    </div>
+                                    <div class="drag-item-handle">
+                                        <i class="fas fa-grip-vertical"></i>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Metrics & Text Category -->
+                        <div class="component-category mb-3">
+                            <div class="category-title">
+                                <i class="fas fa-tachometer-alt me-1"></i>Metrics & Text
+                            </div>
+                            @foreach (var item in dragComponentLibrary.Where(c => c.DataViewingTypeID == 3 || c.DataViewingTypeID == 5))
+                            {
+                                <div class="drag-component-item"
+                                     draggable="true"
+                                     @ondragstart="(e) => OnDragStartFromLibrary(e, item)"
+                                     @ondragend="OnDragEnd"
+                                     @onclick="() => QuickAddComponent(item)"
+                                     style="--item-color: @item.Color">
+                                    <div class="drag-item-icon">
+                                        <i class="fas @item.Icon"></i>
+                                    </div>
+                                    <div class="drag-item-info">
+                                        <span class="drag-item-title">@item.Title</span>
+                                        <span class="drag-item-size">@item.DefaultWidth × @item.DefaultHeight</span>
+                                    </div>
+                                    <div class="drag-item-handle">
+                                        <i class="fas fa-grip-vertical"></i>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <!-- Collapsed Sidebar State -->
+                    <div class="sidebar-collapsed">
+                        <button class="btn btn-sm btn-outline-secondary w-100 mb-2" @onclick="ToggleSidebar" title="Show Components">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <div class="sidebar-collapsed-hint">
+                            <small class="text-muted">Components</small>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- CANVAS AREA -->
+
+
+            <div class="builder-design">
+                <div class="builder-canvas" style="transform: scale(@zoomLevel);">
+                    <!-- DROP ZONE WRAPPER -->
+                    <div class="canvas-drop-zone @(isDragging ? "is-drag-active" : "")"
+                         @ref="canvasRef"
+                         @ondragover="OnDragOverCanvas"
+                         @ondragover:preventDefault
+                         @ondragleave="OnDragLeaveCanvas"
+                         @ondrop="OnDropOnCanvas"
+                         @ondrop:preventDefault>
+
+                        <!-- Drop Indicator -->
+                        @if (showDropIndicator && isDragging)
+                        {
+                            <div class="drop-indicator"
+                                 style="grid-column: @(dropIndicatorX + 1) / span @dropIndicatorWidth;
+                                                grid-row: @(dropIndicatorY + 1) / span @dropIndicatorHeight;">
+                                <div class="drop-indicator-inner">
+                                    <i class="fas fa-plus-circle"></i>
+                                    <span>Drop Here</span>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Dashboard Grid -->
+                        <div class="dashboard-grid @(showGridLines ? "show-grid" : "" )" @key="canvasKey" style="grid-template-rows: repeat(@GetGridHeight(), 100px);">
+                            @if (showGridLines)
+                            {
+                                <div class="grid-lines">
+                                    @for (int i = 0; i < 12; i++)
+                                    {
+                                        <div class="grid-column" style="grid-column: @(i + 1);"></div>
+                                    }
+                                    @for (int i = 0; i < GetGridHeight(); i++)
+                                    {
+                                        <div class="grid-row" style="grid-row: @(i + 1);"></div>
+                                    }
+                                </div>
+                            }
+                            @if (dashboard.Components != null && dashboard.Components.Any())
+                            {
+                                @foreach (var component in dashboard.Components)
+                                {
+                                    <div class="dashboard-component @(selectedComponentId == component.ComponentID ? "selected" : "") @(draggedExistingComponentId == component.ComponentID ? "is-dragging" : "")"
+                                         style="grid-column: @(component.GridX + 1) / span @component.GridWidth;
+                                                            grid-row: @(component.GridY + 1) / span @component.GridHeight;"
+                                         draggable="true"
+                                         @ondragstart="(e) => OnDragStartExisting(e, component)"
+                                         @ondragend="OnDragEnd"
+                                         @onclick="() => SelectComponent(component.ComponentID)"
+                                         @onclick:stopPropagation="true">
+
+                                        <div class="component-header">
+                                            <div class="component-drag-handle" title="Drag to move">
+                                                <i class="fas fa-grip-vertical"></i>
+                                            </div>
+                                            <span class="component-title">@component.Title</span>
+                                            <div class="component-actions">
+                                                @if (isRegenerating.ContainsKey(component.ComponentID) && isRegenerating[component.ComponentID])
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" disabled>
+                                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-link" title="Regenerate with AI"
+                                                            @onclick="() => RegenerateComponent(component)"
+                                                            @onclick:stopPropagation="true"
+                                                            disabled="@(dashboard.DatabaseID <= 0)">
+                                                        <i class="fas fa-magic"></i>
+                                                    </button>
+                                                }
+                                                <button class="btn btn-sm btn-link" @onclick="() => LoadComponentDataAsync(component)" @onclick:stopPropagation="true" title="Refresh Data">
+                                                    <i class="fas fa-sync-alt"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-link" @onclick="() => DuplicateComponent(component)" @onclick:stopPropagation="true" title="Duplicate">
+                                                    <i class="fas fa-clone"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-link text-danger" @onclick="() => RemoveComponent(component.ComponentID)" @onclick:stopPropagation="true" title="Delete">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="component-body">
+                                            @if (IsComponentLoading(component.ComponentID))
+                                            {
+                                                <div class="component-loading">
+                                                    <div class="spinner-border text-primary mb-2"></div>
+                                                    <p class="text-muted small mb-0">Loading data...</p>
+                                                </div>
+                                            }
+                                            else if (componentData.ContainsKey(component.ComponentID) && componentData[component.ComponentID].Any())
+                                            {
+                                                @switch (component.DataViewingTypeID)
+                                                {
+                                                    case 1: // Table
+                                                        var tableData = GetComponentData(component.ComponentID);
+                                                        var columns = tableData.First().Keys.ToList();
+                                                        <div class="table-responsive" style="max-height: 100%; overflow: auto;">
+                                                            <table class="table table-sm table-hover mb-0">
+                                                                <thead class="sticky-top bg-light">
+                                                                    <tr>
+                                                                        @foreach (var col in columns.Take(6))
+                                                                        {
+                                                                            <th style="font-size: 17px;">@col</th>
+                                                                        }
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    @foreach (var row in tableData)
+                                                                    {
+                                                                        <tr>
+                                                                            @foreach (var col in columns.Take(6))
+                                                                            {
+                                                                                <td style="font-size: 17px;">@(row[col]?.ToString() ?? "-")</td>
+                                                                            }
+                                                                        </tr>
+                                                                    }
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                        break;
+
+                                                    case 3: // KPI
+                                                        var kpiData = GetComponentData(component.ComponentID);
+                                                        var kpiValue = kpiData.FirstOrDefault()?.Values.FirstOrDefault();
+                                                        <div class="kpi-display">
+                                                            <div class="kpi-value">@FormatNumber(kpiValue)</div>
+                                                            <div class="kpi-label">@component.Title</div>
+                                                            @if (!string.IsNullOrEmpty(component.Description))
+                                                            {
+                                                                <div class="kpi-description">@component.Description</div>
+                                                            }
+                                                        </div>
+                                                        break;
+
+                                                    case 4: // Chart
+                                                            <div id="chart-@component.ComponentID" style="height: 100%; min-height: 200px;"></div>
+                                                        break;
+
+                                                    case 2: // Label
+                                                            <div class="label-display text-center p-3">
+                                                                <h5>@component.Title</h5>
+                                                            @if (!string.IsNullOrEmpty(component.Description))
+                                                            {
+                                                                <p class="text-muted mb-0">@component.Description</p>
+                                                            }
+                                                        </div>
+                                                        break;
+
+                                                    default:
+                                                        <div class="text-center text-muted p-3">
+                                                            <i class="fas fa-cube fa-2x mb-2"></i>
+                                                            <p class="mb-0">Component</p>
+                                                        </div>
+                                                        break;
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <div class="component-placeholder">
+                                                    <i class="fas @GetComponentIcon(component.DataViewingTypeID) fa-3x mb-3 text-muted"></i>
+                                                    <p class="text-muted mb-1 fw-bold">@GetComponentTypeName(component.DataViewingTypeID)</p>
+                                                    <small class="text-muted">Configure SQL in properties panel</small>
+                                                </div>
+                                            }
+                                        </div>
+
+                                        @if (selectedComponentId == component.ComponentID)
+                                        {
+                                            <div class="resize-handle resize-handle-se" title="Drag to resize"></div>
+                                            <div class="resize-handle resize-handle-n"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "n")'
+                                                 title="Resize North"></div>
+                                            <div class="resize-handle resize-handle-s"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "s")'
+                                                 title="Resize South"></div>
+                                            <div class="resize-handle resize-handle-e"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "e")'
+                                                 title="Resize East"></div>
+                                            <div class="resize-handle resize-handle-w"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "w")'
+                                                 title="Resize West"></div>
+                                            <div class="resize-handle resize-handle-ne"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "ne")'
+                                                 title="Resize North-East"></div>
+                                            <div class="resize-handle resize-handle-nw"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "nw")'
+                                                 title="Resize North-West"></div>
+                                            <div class="resize-handle resize-handle-se"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "se")'
+                                                 title="Resize South-East"></div>
+                                            <div class="resize-handle resize-handle-sw"
+                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "sw")'
+                                                 title="Resize South-West"></div>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <!-- Empty Canvas State -->
+                                <div class="empty-canvas-overlay">
+                                    <div class="empty-canvas">
+                                        <i class="fas fa-arrows-alt fa-3x mb-3 text-muted"></i>
+                                        <h5>Drag Components Here</h5>
+                                        <p class="text-muted">Drag components from the left panel or use AI to generate a dashboard</p>
+                                        <div class="d-flex gap-2 justify-content-center mt-3">
+                                            <button class="btn btn-success" @onclick="ShowTemplateModal" disabled="@(dashboard.DatabaseID <= 0)">
+                                                <i class="fas fa-magic me-2"></i>AI Generate
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Keyboard Mode Indicator - Show when component is selected -->
+            @if (selectedComponentId != 0 && !isPreviewMode)
+            {
+                <div class="keyboard-indicator @(isKeyboardMoveMode ? "active" : "")">
+                    <div class="keyboard-indicator-content">
+                        <i class="fas fa-keyboard me-2"></i>
+                        <span class="indicator-text">
+                            @if (!string.IsNullOrEmpty(lastKeyboardAction))
+                            {
+                                @lastKeyboardAction
+                            }
+                            else
+                            {
+                                <text>Use Arrow keys to move • Shift+Arrow to resize</text>
+                            }
+                        </span>
+                        <span class="position-info">
+                            Position: (@selectedComponent?.GridX, @selectedComponent?.GridY) •
+                            Size: @selectedComponent?.GridWidth×@selectedComponent?.GridHeight
+                        </span>
+                    </div>
+                </div>
+            }
+
+            <!-- RIGHT SIDEBAR - PROPERTIES PANEL -->
+            <div class="builder-sidebar builder-sidebar-right @(selectedComponentId == 0 ? "collapsed" : "")">
+                @if (selectedComponentId != 0 && selectedComponent != null)
+                {
+                    <div class="properties-panel">
+                        <div class="properties-header">
+                            <h5>
+                                <i class="fas fa-cog me-2"></i>Properties
+                            </h5>
+                            <button class="btn-close-panel" @onclick="ClosePropertiesPanel">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div class="properties-body">
+                            <!-- Component Title -->
+                            <div class="property-section">
+                                <label class="property-label">
+                                    <i class="fas fa-heading me-2"></i>Title
+                                </label>
+                                <input type="text" class="form-control" @bind="selectedComponent.Title" placeholder="Enter component title" />
+                            </div>
+
+                            <!-- Component Description -->
+                            <div class="property-section">
+                                <label class="property-label">
+                                    <i class="fas fa-align-left me-2"></i>Description
+                                </label>
+                                <textarea class="form-control" @bind="selectedComponent.Description" placeholder="Enter description (optional)" rows="2"></textarea>
+                            </div>
+
+                            <!-- SQL Query -->
+                            <div class="property-section">
+                                <label class="property-label">
+                                    <i class="fas fa-code me-2"></i>SQL Query
+                                </label>
+                                @if (!string.IsNullOrEmpty(selectedComponent.QueryText))
+                                {
+                                    @if (!isEditingSql)
+                                    {
+                                        <div class="sql-viewer-large">
+                                            <div class="sql-header">
+                                                <span>SQL Statement</span>
+                                                <div class="sql-actions">
+                                                    <button class="btn-sql-action" @onclick="() => CopyToClipboard(selectedComponent.QueryText)" title="Copy">
+                                                        <i class="fas fa-copy"></i>
+                                                    </button>
+                                                    <button class="btn-sql-action" @onclick="EnableSqlEdit" title="Edit">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <pre class="sql-code-large">@selectedComponent.QueryText</pre>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="sql-editor-large">
+                                            <div class="sql-header">
+                                                <span>Edit SQL Query</span>
+                                                <div class="sql-actions">
+                                                    <button class="btn-sql-action text-success" @onclick="SaveSqlEdit" title="Save">
+                                                        <i class="fas fa-check"></i>
+                                                    </button>
+                                                    <button class="btn-sql-action text-danger" @onclick="CancelSqlEdit" title="Cancel">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <textarea class="sql-textarea" @bind="editingSqlText" rows="8" spellcheck="false"></textarea>
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="alert alert-warning mb-0 py-2">
+                                        <small><i class="fas fa-exclamation-triangle me-1"></i>No SQL query defined</small>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary mt-2 w-100" @onclick="AddComponentSQL">
+                                        <i class="fas fa-plus me-1"></i>Add SQL Query
+                                    </button>
+                                }
+                            </div>
+
+                            <!-- Component Type -->
+                            <div class="property-section">
+                                <label class="property-label">
+                                    <i class="fas fa-shapes me-2"></i>Component Type
+                                </label>
+                                <select class="form-select" @bind="selectedComponentType" @bind:after="OnComponentTypeChanged">
+                                    <option value="1">📊 Table</option>
+                                    <option value="2">🏷️ Label</option>
+                                    <option value="3">📈 KPI / Metric</option>
+                                    <option value="4">📊 Chart</option>
+                                </select>
+                            </div>
+
+                            <!-- Chart Type (Only if Chart) -->
+                            @if (selectedComponent.DataViewingTypeID == 4)
+                            {
+                                <div class="property-section">
+                                    <label class="property-label">
+                                        <i class="fas fa-chart-bar me-2"></i>Chart Type
+                                    </label>
+                                    <div class="chart-type-grid">
+                                        @foreach (var ct in new[] { ("bar", "fa-chart-bar", "Bar"), ("line", "fa-chart-line", "Line"), ("pie", "fa-chart-pie", "Pie"), ("donut", "fa-ring", "Donut"), ("area", "fa-chart-area", "Area") })
+                                        {
+                                            <div class="chart-type-option @(GetComponentChartType() == ct.Item1 ? "selected" : "")"
+                                                 @onclick="() => UpdateChartType(ct.Item1)">
+                                                <i class="fas @ct.Item2"></i>
+                                                <span>@ct.Item3</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            <!-- Component Size -->
+                            <div class="property-section">
+                                <label class="property-label">
+                                    <i class="fas fa-expand me-2"></i>Size
+                                </label>
+                                <div class="size-selector">
+                                    @foreach (var size in new[] { (3, 2), (6, 2), (6, 3), (12, 3), (12, 4) })
+                                    {
+                                        <div class="size-option @(selectedComponent.GridWidth == size.Item1 && selectedComponent.GridHeight == size.Item2 ? "active" : "")"
+                                             @onclick="() => UpdateComponentSize(size.Item1, size.Item2)">
+                                            <div class="size-preview" style="width: @(size.Item1 * 6)px; height: @(size.Item2 * 12)px;"></div>
+                                            <span>@size.Item1×@size.Item2</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="property-actions">
+                                <button class="btn btn-primary w-100 mb-2" @onclick="ApplyComponentChanges">
+                                    <i class="fas fa-check me-2"></i>Apply Changes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- AI Assistant -->
+    <FloatingAIAssistant DashboardId="@dashboard.DashboardID"
+                         Dashboard="@dashboard"
+                         FindEmptyPosition="FindNextEmptyPosition"
+                         OnComponentAdded="@OnAIComponentAdded" />
+</div>
+
+<!-- Template Selection Modal -->
+@* Keep existing template modal code - no changes needed *@
+<div class="modal fade @(showTemplateModal ? "show" : "")" tabindex="-1" style="display: @(showTemplateModal ? "block" : "none")">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content" style="border-radius: 16px; overflow: hidden; width: 850px !important">
+            <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; padding: 2rem;">
+                <div class="d-flex align-items-center text-white">
+                    <i class="fas fa-layer-group me-3" style="font-size: 2rem;"></i>
+                    <div>
+                        <h3 class="mb-0 fw-bold">Choose a Template</h3>
+                        <p class="mb-0 opacity-75" style="font-size: 0.95rem;">Select a layout template to start building your dashboard</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseTemplateModal"></button>
+            </div>
+            <div class="modal-body" style="padding: 2rem;">
+                <div class="mb-4 p-3" style="background: #f8f9fa; border-radius: 12px;">
+                    <label class="form-label fw-bold d-flex align-items-center mb-2" style="font-size: 1.1rem;">
+                        <i class="fas fa-database me-2 text-primary"></i>Select Database
+                    </label>
+                    <select class="form-select form-select-lg" @bind="selectedDatabaseIdForTemplate" style="border-radius: 8px; border: 2px solid #dee2e6;">
+                        <option value="0">-- Select a Database --</option>
+                        @foreach (var ds in availableDataSources)
+                        {
+                            <option value="@ds.Id">@ds.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="row g-4">
+                    @foreach (var tmpl in availableTemplates)
+                    {
+                        <div class="col-lg-4">
+                            <div class="template-card-enhanced @(selectedTemplateId == tmpl.Id ? "selected" : "")"
+                                 @onclick="() => selectedTemplateId = tmpl.Id">
+                                <div class="template-preview-enhanced">
+                                    <i class="@GetTemplateIcon(tmpl.Category) template-icon"></i>
+                                </div>
+                                <div class="template-info">
+                                    <h5 class="template-title">@tmpl.Name</h5>
+                                    <p class="template-description">@tmpl.Description</p>
+                                    <div class="template-meta">
+                                        <span class="badge bg-light text-dark">
+                                            <i class="fas fa-th me-1"></i>@tmpl.Components.Count components
+                                        </span>
+                                    </div>
+                                    @if (selectedTemplateId == tmpl.Id)
+                                    {
+                                        <div class="selected-badge">
+                                            <i class="fas fa-check-circle me-2"></i>Selected
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1.5rem 2rem; border-top: 2px solid #f0f0f0;">
+                <button type="button" class="btn btn-secondary btn-lg" @onclick="CloseTemplateModal" style="border-radius: 8px; padding: 0.75rem 2rem;">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </button>
+                <button type="button" class="btn btn-success btn-lg"
+                        @onclick="GenerateWithSelectedTemplate"
+                        disabled="@(selectedDatabaseIdForTemplate == 0 || string.IsNullOrEmpty(selectedTemplateId) || isGeneratingFromTemplate)"
+                        style="border-radius: 8px; padding: 0.75rem 2rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                    @if (isGeneratingFromTemplate)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <text>Generating...</text>
+                    }
+                    else
+                    {
+                        <i class="fas fa-magic me-2"></i>
+                        <text>Generate with AI</text>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal-backdrop fade @(showTemplateModal ? "show" : "")" style="display: @(showTemplateModal ? "block" : "none")"></div>
+
+<!-- Add Chart Modal -->
+@* Keep existing add chart modal code - no changes needed *@
+<div class="modal fade @(showAddChartModal ? "show" : "")" tabindex="-1" style="display: @(showAddChartModal ? "block" : "none")">
+    <div class="modal-dialog modal-xl" style="max-width: 1000px;">
+        <div class="modal-content" style="border-radius: 16px; overflow: hidden;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; padding: 2rem;">
+                <div class="d-flex align-items-center text-white">
+                    <i class="fas fa-magic me-3" style="font-size: 2rem;"></i>
+                    <div>
+                        <h3 class="mb-0 fw-bold">Create Component with AI</h3>
+                        <p class="mb-0 opacity-75" style="font-size: 0.95rem;">Describe what you want to visualize and select the type</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseAddChartModal"></button>
+            </div>
+            <div class="modal-body" style="padding: 2rem;">
+                <!-- Step Indicator -->
+                <div class="steps-indicator mb-4">
+                    <div class="step @(addChartStep >= 1 ? "active" : "") @(addChartStep > 1 ? "completed" : "")">
+                        <div class="step-number">1</div>
+                        <div class="step-label">Describe</div>
+                    </div>
+                    <div class="step-line @(addChartStep > 1 ? "active" : "")"></div>
+                    <div class="step @(addChartStep >= 2 ? "active" : "") @(addChartStep > 2 ? "completed" : "")">
+                        <div class="step-number">2</div>
+                        <div class="step-label">Configure</div>
+                    </div>
+                    <div class="step-line @(addChartStep > 2 ? "active" : "")"></div>
+                    <div class="step @(addChartStep >= 3 ? "active" : "")">
+                        <div class="step-number">3</div>
+                        <div class="step-label">Preview</div>
+                    </div>
+                </div>
+
+                @if (addChartStep == 1)
+                {
+                    <div class="step-content">
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label fw-bold mb-0">
+                                    <i class="fas fa-comment-dots me-2 text-primary"></i>What would you like to visualize?
+                                </label>
+                                <button type="button" class="btn btn-outline-primary btn-sm" @onclick="LoadSuggestedQuestions" disabled="@isLoadingSuggestions">
+                                    @if (isLoadingSuggestions)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="fas fa-lightbulb me-1"></i>
+                                    }
+                                    Suggest
+                                </button>
+                            </div>
+
+                            @if (suggestedQuestions?.Any() == true)
+                            {
+                                <div class="suggestions-panel mb-3">
+                                    <div class="suggestions-header">
+                                        <i class="fas fa-lightbulb text-warning me-2"></i>
+                                        <span>Click a question to use it:</span>
+                                        <button type="button" class="btn-close btn-sm ms-auto" @onclick="ClearSuggestions"></button>
+                                    </div>
+                                    <div class="suggestions-list">
+                                        @foreach (var question in suggestedQuestions)
+                                        {
+                                            <div class="suggestion-item" @onclick="() => UseSuggestion(question)">
+                                                <i class="fas fa-chevron-right me-2 text-muted"></i>@question
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            <textarea class="form-control" rows="4" @bind="customChartQuery"
+                                      placeholder="Example: Show top 10 customers by revenue
+    Example: Display total sales this month
+    Example: Show violations by category"></textarea>
+                        </div>
+                    </div>
+                }
+                else if (addChartStep == 2)
+                {
+                    <div class="step-content">
+                        <div class="alert alert-info d-flex align-items-start mb-4">
+                            <i class="fas fa-check-circle me-2 mt-1"></i>
+                            <div>
+                                <strong>Query Analyzed!</strong>
+                                <p class="mb-0 mt-1">@customChartExplanation</p>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold"><i class="fas fa-heading me-2"></i>Component Title</label>
+                            <input type="text" class="form-control" @bind="customChartTitle" placeholder="Enter component title" />
+                        </div>
+
+                        <!-- NEW: Component Type Selection -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold"><i class="fas fa-shapes me-2"></i>Component Type</label>
+                            <div class="component-type-grid">
+                                @foreach (var ct in new[] {
+                                                        (1, "fa-table", "Table", "Display data in a table format"),
+                                                        (3, "fa-tachometer-alt", "KPI", "Show key metrics and numbers"),
+                                                        (4, "fa-chart-bar", "Chart", "Visualize data with charts")
+                                                        })
+                                {
+                                    <div class="component-type-option @(selectedComponentTypeForCustom == ct.Item1 ? "selected" : "")"
+                                         @onclick="() => selectedComponentTypeForCustom = ct.Item1">
+                                        <i class="fas @ct.Item2 fa-2x mb-2"></i>
+                                        <span class="component-type-name">@ct.Item3</span>
+                                        <small class="component-type-desc">@ct.Item4</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Chart Type Selection (Only show if Chart is selected) -->
+                        @if (selectedComponentTypeForCustom == 4)
+                        {
+                            <div class="mb-4">
+                                <label class="form-label fw-bold"><i class="fas fa-chart-bar me-2"></i>Chart Type</label>
+                                <div class="chart-type-grid">
+                                    @foreach (var ct in new[] {
+                                                        ("bar", "fa-chart-bar", "Bar"),
+                                                        ("line", "fa-chart-line", "Line"),
+                                                        ("pie", "fa-chart-pie", "Pie"),
+                                                        ("donut", "fa-ring", "Donut"),
+                                                        ("area", "fa-chart-area", "Area"),
+                                                        ("scatter", "fa-chart-scatter", "Scatter")
+                                                        })
+                                    {
+                                        <div class="chart-type-option @(customChartType == ct.Item1 ? "selected" : "")"
+                                             @onclick="() => customChartType = ct.Item1">
+                                            <i class="fas @ct.Item2 fa-2x mb-2"></i>
+                                            <span>@ct.Item3</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        <!-- KPI Settings (Only show if KPI is selected) -->
+                        @if (selectedComponentTypeForCustom == 3)
+                        {
+                            <div class="mb-4">
+                                <label class="form-label fw-bold"><i class="fas fa-cogs me-2"></i>KPI Settings</label>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Number Format</label>
+                                        <select class="form-select" @bind="kpiNumberFormat">
+                                            <option value="number">Number (1,234.56)</option>
+                                            <option value="currency">Currency ($1,234.56)</option>
+                                            <option value="percent">Percentage (12.34%)</option>
+                                            <option value="compact">Compact (1.2K)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Decimal Places</label>
+                                        <input type="number" class="form-control" @bind="kpiDecimalPlaces" min="0" max="4" />
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Prefix</label>
+                                        <input type="text" class="form-control" @bind="kpiPrefix" placeholder="e.g., $" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Suffix</label>
+                                        <input type="text" class="form-control" @bind="kpiSuffix" placeholder="e.g., units" />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(customChartSql))
+                        {
+                            <div class="mb-3">
+                                <label class="form-label fw-bold"><i class="fas fa-code me-2"></i>Generated SQL</label>
+                                <div class="sql-preview"><pre><code>@customChartSql</code></pre></div>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (addChartStep == 3)
+                {
+                    <div class="step-content text-center py-5">
+                        <i class="fas fa-check-circle text-success mb-3" style="font-size: 4rem;"></i>
+                        <h4 class="mb-3">Component Added Successfully!</h4>
+                        <p class="text-muted mb-4">Your @(GetComponentTypeName(selectedComponentTypeForCustom)) has been added to the dashboard</p>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-lg" @onclick="CloseAddChartModal">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </button>
+
+                @if (addChartStep == 1)
+                {
+                    <button type="button" class="btn btn-primary btn-lg" @onclick="AnalyzeChartQuery"
+                            disabled="@(string.IsNullOrWhiteSpace(customChartQuery) || isAnalyzing)">
+                        @if (isAnalyzing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <text>Analyzing...</text>
+                        }
+                        else
+                        {
+                            <i class="fas fa-arrow-right me-2"></i>
+                            <text>Next</text>
+                        }
+                    </button>
+                }
+                else if (addChartStep == 2)
+                {
+                    <button type="button" class="btn btn-outline-secondary btn-lg" @onclick='() => addChartStep = 1'>
+                        <i class="fas fa-arrow-left me-2"></i>Back
+                    </button>
+                    <button type="button" class="btn btn-success btn-lg" @onclick="GenerateSqlAndAddComponent"
+                            disabled="@(string.IsNullOrWhiteSpace(customChartTitle) || isGeneratingSql)">
+                        @if (isGeneratingSql)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <text>Creating...</text>
+                        }
+                        else
+                        {
+                            <i class="fas fa-plus me-2"></i>
+                            <text>Add @(GetComponentTypeName(selectedComponentTypeForCustom))</text>
+                        }
+                    </button>
+                }
+                else if (addChartStep == 3)
+                {
+                    <button type="button" class="btn btn-success btn-lg" @onclick="CloseAddChartModal">
+                        <i class="fas fa-check me-2"></i>Done
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Keyboard Shortcuts Modal -->
+<div class="modal fade @(showKeyboardShortcutsModal ? "show" : "")" tabindex="-1"
+     style="display: @(showKeyboardShortcutsModal ? "block" : "none")">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 12px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #475569 0%, #334155 100%); border: none;">
+                <h5 class="modal-title text-white">
+                    <i class="fas fa-keyboard me-2"></i>Keyboard Shortcuts
+                </h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseKeyboardShortcuts"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="shortcuts-grid">
+                    <div class="shortcut-category">
+                        <h6 class="category-title">
+                            <i class="fas fa-arrows-alt me-2 text-primary"></i>Movement
+                        </h6>
+                        <div class="shortcut-item">
+                            <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
+                            <span>Move component</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <kbd>Ctrl</kbd> + <kbd>Arrow</kbd>
+                            <span>Fast move (3 units)</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <kbd>Shift</kbd> + <kbd>Arrow</kbd>
+                            <span>Resize component</span>
+                        </div>
+                    </div>
+
+                    <div class="shortcut-category">
+                        <h6 class="category-title">
+                            <i class="fas fa-mouse-pointer me-2 text-success"></i>Selection
+                        </h6>
+                        <div class="shortcut-item">
+                            <kbd>Tab</kbd>
+                            <span>Next component</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <kbd>Shift</kbd> + <kbd>Tab</kbd>
+                            <span>Previous component</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <kbd>Esc</kbd>
+                            <span>Deselect</span>
+                        </div>
+                    </div>
+
+                    <div class="shortcut-category">
+                        <h6 class="category-title">
+                            <i class="fas fa-edit me-2 text-warning"></i>Actions
+                        </h6>
+                        <div class="shortcut-item">
+                            <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                            <span>Save dashboard</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <kbd>Ctrl</kbd> + <kbd>D</kbd>
+                            <span>Duplicate component</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <kbd>Delete</kbd>
+                            <span>Remove component</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="CloseKeyboardShortcuts">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal-backdrop fade @(showKeyboardShortcutsModal ? "show" : "")"
+     style="display: @(showKeyboardShortcutsModal ? "block" : "none")"></div>
+@* <div class="modal-backdrop fade @(showAddChartModal ? "show" : "")" style="display: @(showAddChartModal ? "block" : "none")"></div>
+ *@
+<style>
+    .dashboard-builder {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: white;
+    }
+
+    .builder-header {
+        background: white;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .builder-content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .builder-sidebar {
+        width: 280px;
+        background: white;
+        border-right: 1px solid #dee2e6;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .builder-sidebar-right {
+        border-right: none;
+        border-left: 1px solid #dee2e6;
+    }
+
+    .sidebar-header {
+        padding: 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .sidebar-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+    }
+
+    .component-category {
+        margin-bottom: 1.5rem;
+    }
+
+    .category-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+    }
+
+    .component-item {
+        padding: 0.75rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+        cursor: move;
+        transition: all 0.2s;
+    }
+
+        .component-item:hover {
+            background: #e9ecef;
+            transform: translateX(4px);
+        }
+
+    .builder-canvas-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .canvas-toolbar {
+        padding: 0.75rem 1rem;
+        background: white;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+    }
+
+    .builder-canvas {
+        flex: 1;
+        overflow: auto;
+        padding: 2rem;
+        transform-origin: top left;
+    }
+
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+        padding: 0; /* ✅ Remove padding so components use full width */
+        min-height: 600px;
+    }
+
+    .dashboard-component {
+        background: white;
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+        .dashboard-component:hover {
+            border-color: #0d6efd;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .dashboard-component.selected {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 3px rgba(13,110,253,0.25);
+        }
+
+    .component-header {
+        padding: 0.75rem;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #f8f9fa;
+    }
+
+    .component-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .component-actions {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    .component-body {
+        padding: 1rem;
+        height: calc(100% - 50px);
+        overflow: auto;
+    }
+
+    .empty-canvas {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 400px;
+        text-align: center;
+    }
+
+    .template-card-enhanced {
+        background: white;
+        border: 3px solid #e0e0e0;
+        border-radius: 16px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+        .template-card-enhanced:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+            border-color: #667eea;
+        }
+
+        .template-card-enhanced.selected {
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2), 0 12px 40px rgba(102, 126, 234, 0.3);
+            transform: translateY(-4px);
+        }
+
+    .template-preview-enhanced {
+        height: 220px;
+        background: #f8f9fa;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .preview-row {
+        display: flex;
+        gap: 8px;
+    }
+
+    .preview-box {
+        flex: 1;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .template-info {
+        padding: 1.5rem;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .template-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        color: #2d3748;
+    }
+
+    .template-description {
+        color: #718096;
+        font-size: 0.95rem;
+        margin-bottom: 1rem;
+        line-height: 1.5;
+        flex: 1;
+    }
+
+    .template-meta {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+    }
+
+        .template-meta .badge {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+    .selected-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 0.75rem;
+        border-radius: 8px;
+        text-align: center;
+        font-weight: 600;
+        font-size: 1rem;
+        animation: slideInUp 0.3s ease-out;
+    }
+
+</style>
+
+@code {
+    [Parameter]
+    public int DashboardId { get; set; }
+
+    // ============================================
+    // STATE VARIABLES
+    // ============================================
+    private DashboardModel dashboard = new DashboardModel();
+    private int canvasKey = 0;
+    private List<DashboardCategory> availableCategories = new List<DashboardCategory>();
+    private List<DataSource> availableDataSources = new List<DataSource>();
+    private List<ComponentTemplate> availableComponents = new List<ComponentTemplate>();
+
+    private bool isEditingSql = false;
+    private string editingSqlText = "";
+    private int selectedComponentType = 4;
+    private bool componentTypeChanged = false;
+
+    // Table Options
+    private int tablePageSize = 10;
+    private bool tableEnablePagination = true;
+    private bool tableEnableSearch = true;
+    private bool tableEnableSort = true;
+
+    // KPI Options
+    private string kpiNumberFormat = "number";
+    private int kpiDecimalPlaces = 2;
+    private string kpiPrefix = "";
+    private string kpiSuffix = "";
+    private string kpiIcon = "tachometer-alt";
+    private bool kpiShowTrend = false;
+
+    // Template functionality
+    private bool showTemplateModal = false;
+    private string selectedTemplateId = "";
+    private int selectedDatabaseIdForTemplate = 0;
+    private bool isGeneratingFromTemplate = false;
+    private List<DashboardTemplate> availableTemplates = new List<DashboardTemplate>();
+
+    // UI state
+    private int selectedComponentId;
+    private bool isEditingTitle;
+    private ElementReference titleInputRef;
+    private string componentSearchTerm = "";
+    private double zoomLevel = 1.0;
+
+    private bool isPreviewMode = false;
+    private bool hasUnsavedChanges = false;
+    private Dictionary<int, List<Dictionary<string, object>>> componentData = new Dictionary<int, List<Dictionary<string, object>>>();
+    private Dictionary<int, bool> isComponentLoading = new Dictionary<int, bool>();
+    private bool isLoadingAllData = false;
+
+    private bool showAddChartModal = false;
+    private int addChartStep = 1;
+    private string customChartQuery = "";
+    private string customChartType = "bar";
+    private string customChartSize = "medium";
+    private string customChartSql = "";
+    private string customChartTitle = "";
+    private string customChartExplanation = "";
+    private bool isGeneratingChart = false;
+    private bool isAnalyzing = false;
+    private bool isGeneratingSql = false;
+
+    private bool showSettingsModal = false;// Add near other state variables
+    private bool showSidebar = true; // Controls sidebar visibility
+
+
+
+    private int selectedComponentTypeForCustom = 4; // Default to Chart
+
+
+
+    // Table pagination
+    private Dictionary<int, int> tableCurrentPage = new Dictionary<int, int>();
+    private Dictionary<int, int> tablePageSizeDict = new Dictionary<int, int>();
+    private Dictionary<int, string> tableSearchQueryDict = new Dictionary<int, string>();
+    private int defaultTablePageSize = 10;
+
+    // Suggested Questions
+    private List<string> suggestedQuestions = new List<string>();
+    private bool isLoadingSuggestions = false;
+
+    // Component errors and regeneration
+    private Dictionary<int, string> componentErrors = new Dictionary<int, string>();
+    private Dictionary<int, bool> isRegenerating = new Dictionary<int, bool>();
+
+    // Analysis response
+    private AnalysisResponse analysisResponse = null;
+
+    // ============================================
+    // DRAG & DROP STATE
+    // ============================================
+    private bool isDragging = false;
+    private string draggedComponentType = null;
+    private int? draggedExistingComponentId = null;
+    private int dropIndicatorX = 0;
+    private int dropIndicatorY = 0;
+    private int dropIndicatorWidth = 4;
+    private int dropIndicatorHeight = 3;
+    private bool showDropIndicator = false;
+    private ElementReference canvasRef;
+
+    // ============================================
+    // COMPONENT LIBRARY FOR DRAG & DROP
+    // ============================================
+    private class DragComponentItem
+    {
+        public string Type { get; set; }
+        public string Title { get; set; }
+        public string Icon { get; set; }
+        public string Color { get; set; }
+        public int DataViewingTypeID { get; set; }
+        public int DefaultWidth { get; set; } = 6;
+        public int DefaultHeight { get; set; } = 3;
+        public string ChartType { get; set; }
+    }
+
+    private List<DragComponentItem> dragComponentLibrary = new()
+    {
+        new DragComponentItem { Type = "table", Title = "Data Table", Icon = "fa-table", Color = "#3B82F6", DataViewingTypeID = 1, DefaultWidth = 6, DefaultHeight = 4 },
+        new DragComponentItem { Type = "bar-chart", Title = "Bar Chart", Icon = "fa-chart-bar", Color = "#10B981", DataViewingTypeID = 4, DefaultWidth = 6, DefaultHeight = 3, ChartType = "bar" },
+        new DragComponentItem { Type = "line-chart", Title = "Line Chart", Icon = "fa-chart-line", Color = "#8B5CF6", DataViewingTypeID = 4, DefaultWidth = 6, DefaultHeight = 3, ChartType = "line" },
+        new DragComponentItem { Type = "pie-chart", Title = "Pie Chart", Icon = "fa-chart-pie", Color = "#F59E0B", DataViewingTypeID = 4, DefaultWidth = 4, DefaultHeight = 3, ChartType = "pie" },
+        new DragComponentItem { Type = "area-chart", Title = "Area Chart", Icon = "fa-chart-area", Color = "#06B6D4", DataViewingTypeID = 4, DefaultWidth = 6, DefaultHeight = 3, ChartType = "area" },
+        new DragComponentItem { Type = "donut-chart", Title = "Donut Chart", Icon = "fa-ring", Color = "#EC4899", DataViewingTypeID = 4, DefaultWidth = 4, DefaultHeight = 3, ChartType = "donut" },
+        new DragComponentItem { Type = "kpi", Title = "KPI Card", Icon = "fa-tachometer-alt", Color = "#EF4444", DataViewingTypeID = 3, DefaultWidth = 3, DefaultHeight = 2 },
+        new DragComponentItem { Type = "label", Title = "Text Label", Icon = "fa-font", Color = "#6B7280", DataViewingTypeID = 2, DefaultWidth = 4, DefaultHeight = 1 },
+    };
+
+    // ============================================
+    // PROPERTIES AND FIELDS
+    // ============================================
+    private List<ComponentTemplate> FilteredComponents =>
+        string.IsNullOrWhiteSpace(componentSearchTerm)
+            ? availableComponents
+            : availableComponents.Where(c => c.Title.Contains(componentSearchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private DashboardComponent selectedComponent => dashboard.Components?.FirstOrDefault(c => c.ComponentID == selectedComponentId);
+
+    // ============================================
+    // LIFECYCLE METHODS
+    // ============================================
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategories();
+        await LoadDataSources();
+        await LoadTemplates();
+        LoadComponentTemplates();
+
+        if (DashboardId > 0)
+        {
+            await LoadDashboard();
+        }
+        else
+        {
+            dashboard = new DashboardModel
+            {
+                Title = "New Dashboard",
+                Description = "",
+                Components = new List<DashboardComponent>(),
+                CreatedAt = DateTime.UtcNow,
+                LastUpdated = DateTime.UtcNow,
+                SharingStatus = DashboardSharingStatus.Private,
+                ValidationStatus = DashboardValidationStatus.Draft,
+                CategoryID = 1
+            };
+        }
+    }
+
+    //   protected override async Task OnAfterRenderAsync(bool firstRender)
+    //   {
+    //       if (firstRender)
+    //       {
+    //           await JSRuntime.InvokeVoidAsync("eval", @"
+    //               window.getElementBounds = function(element) {
+    //                   if (!element) return null;
+    //                   const rect = element.getBoundingClientRect();
+    //                   return {
+    //                       left: rect.left,
+    //                       top: rect.top,
+    //                       width: rect.width,
+    //                       height: rect.height,
+    //                       scrollLeft: element.scrollLeft || 0,
+    //                       scrollTop: element.scrollTop || 0
+    //                   };
+    //               };
+    // // Keyboard shortcuts
+    //           document.addEventListener('keydown', function(e) {
+    //               // Ctrl/Cmd + Click for multi-select
+    //               if ((e.ctrlKey || e.metaKey) && e.target.closest('.dashboard-component')) {
+    //                   const component = e.target.closest('.dashboard-component');
+    //                   component.classList.toggle('selected');
+    //                   e.preventDefault();
+    //               }
+
+    //               // Arrow keys to move selected component
+    //               if (e.target.classList.contains('dashboard-component') &&
+    //                   e.target.classList.contains('selected') &&
+    //                   !e.altKey) {
+    //                   const key = e.key;
+    //                   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+    //                       // Trigger move via JS interop
+    //                       window.dispatchEvent(new CustomEvent('moveComponent', {
+    //                           detail: {
+    //                               key: key,
+    //                               componentId: component.getAttribute('data-component-id')
+    //                           }
+    //                       }));
+    //                       e.preventDefault();
+    //                   }
+    //               }
+
+    //               // Delete key to remove component
+    //               if (e.key === 'Delete' &&
+    //                   document.activeElement.classList.contains('dashboard-component') &&
+    //                   document.activeElement.classList.contains('selected')) {
+    //                   // Trigger delete
+    //                   window.dispatchEvent(new CustomEvent('deleteComponent', {
+    //                       detail: { componentId: component.getAttribute('data-component-id') }
+    //                   }));
+    //                   e.preventDefault();
+    //               }
+    //           });
+    //           ");
+    //       }
+    //   }
+
+    // ============================================
+    // DRAG & DROP METHODS
+    // ============================================
+    private bool showKeyboardShortcutsModal = false;
+
+    private void ShowKeyboardShortcuts()
+    {
+        showKeyboardShortcutsModal = true;
+        StateHasChanged();
+    }
+
+    private void CloseKeyboardShortcuts()
+    {
+        showKeyboardShortcutsModal = false;
+        StateHasChanged();
+    }
+
+
+    // ============================================
+    // KEYBOARD NAVIGATION STATE
+    // ============================================
+    private bool isKeyboardMoveMode = false;
+    private string lastKeyboardAction = "";
+    private DotNetObjectReference<DashboardBuilder> dotNetRef;
+
+    // ============================================
+    // LIFECYCLE - Register Keyboard Handler
+    // ============================================
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+
+
+
+        if (firstRender)
+        {
+            // Create .NET reference for JS callbacks
+            dotNetRef = DotNetObjectReference.Create(this);
+
+            // Register keyboard handler
+            await JSRuntime.InvokeVoidAsync("registerKeyboardHandler", dotNetRef);
+
+            // Register getElementBounds helper
+            await JSRuntime.InvokeVoidAsync("eval", @"
+            window.getElementBounds = function(element) {
+                if (!element) return null;
+                const rect = element.getBoundingClientRect();
+                return {
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                    scrollLeft: element.scrollLeft || 0,
+                    scrollTop: element.scrollTop || 0
+                };
+            };
+        ");
+            if (!isRenderingCharts)
+            {
+                isRenderingCharts = true;
+                await Task.Delay(200);
+                await RenderAllCharts();
+                isRenderingCharts = false;
+            }
+        }
+        // Also render charts after any state change that might affect them
+        if (!firstRender && dashboard?.Components?.Any() == true)
+        {
+            var hasChartComponents = dashboard.Components.Any(c =>
+                c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart);
+
+            if (!isRenderingCharts)
+            {
+                isRenderingCharts = true;
+                await Task.Delay(200);
+                await RenderAllCharts();
+                isRenderingCharts = false;
+            }
+        }
+
+    }
+
+    // Add this method
+    private void ToggleSidebar()
+    {
+        showSidebar = !showSidebar;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        dotNetRef?.Dispose();
+    }
+
+    // ============================================
+    // KEYBOARD EVENT HANDLERS (Called from JS)
+    // ============================================
+
+    /// <summary>
+    /// Handles arrow key press for moving/resizing components
+    /// </summary>
+    [JSInvokable]
+    public async Task OnArrowKey(string direction, bool shiftKey, bool ctrlKey)
+    {
+        if (selectedComponentId == 0 || selectedComponent == null)
+        {
+            return;
+        }
+
+        if (isPreviewMode)
+        {
+            return;
+        }
+
+        int step = ctrlKey ? 3 : 1; // Fast move with Ctrl
+
+        if (shiftKey)
+        {
+            // RESIZE MODE
+            await ResizeComponentWithKeyboard(direction, step);
+        }
+        else
+        {
+            // MOVE MODE
+            await MoveComponentWithKeyboard(direction, step);
+        }
+    }
+
+    /// <summary>
+    /// Moves the selected component in the specified direction
+    /// </summary>
+    private async Task MoveComponentWithKeyboard(string direction, int step)
+    {
+        if (selectedComponent == null) return;
+
+        int newX = selectedComponent.GridX;
+        int newY = selectedComponent.GridY;
+
+        switch (direction.ToLower())
+        {
+            case "arrowleft":
+            case "left":
+                newX = Math.Max(0, selectedComponent.GridX - step);
+                break;
+            case "arrowright":
+            case "right":
+                newX = Math.Min(12 - selectedComponent.GridWidth, selectedComponent.GridX + step);
+                break;
+            case "arrowup":
+            case "up":
+                newY = Math.Max(0, selectedComponent.GridY - step);
+                break;
+            case "arrowdown":
+            case "down":
+                newY = selectedComponent.GridY + step;
+                break;
+        }
+
+        // Check if position actually changed
+        if (newX != selectedComponent.GridX || newY != selectedComponent.GridY)
+        {
+            selectedComponent.GridX = newX;
+            selectedComponent.GridY = newY;
+            selectedComponent.LastUpdated = DateTime.UtcNow;
+
+            hasUnsavedChanges = true;
+            isKeyboardMoveMode = true;
+            lastKeyboardAction = $"Moved to ({newX}, {newY})";
+
+            // Force re-render
+            canvasKey++;
+            StateHasChanged();
+
+            // Re-render chart if needed
+            if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
+                componentData.ContainsKey(selectedComponent.ComponentID))
+            {
+                //await Task.Delay(100);
+                //await RenderChart(selectedComponent);
+            }
+
+            Console.WriteLine($"⌨️ Moved '{selectedComponent.Title}' to ({newX}, {newY})");
+        }
+    }
+
+    /// <summary>
+    /// Resizes the selected component in the specified direction
+    /// </summary>
+    private async Task ResizeComponentWithKeyboard(string direction, int step)
+    {
+        if (selectedComponent == null) return;
+
+        int newWidth = selectedComponent.GridWidth;
+        int newHeight = selectedComponent.GridHeight;
+
+        switch (direction.ToLower())
+        {
+            case "arrowleft":
+            case "left":
+                newWidth = Math.Max(1, selectedComponent.GridWidth - step);
+                break;
+            case "arrowright":
+            case "right":
+                // Ensure doesn't exceed grid boundary
+                newWidth = Math.Min(12 - selectedComponent.GridX, selectedComponent.GridWidth + step);
+                break;
+            case "arrowup":
+            case "up":
+                newHeight = Math.Max(1, selectedComponent.GridHeight - step);
+                break;
+            case "arrowdown":
+            case "down":
+                newHeight = selectedComponent.GridHeight + step;
+                break;
+        }
+
+        // Check if size actually changed
+        if (newWidth != selectedComponent.GridWidth || newHeight != selectedComponent.GridHeight)
+        {
+            selectedComponent.GridWidth = newWidth;
+            selectedComponent.GridHeight = newHeight;
+            selectedComponent.LastUpdated = DateTime.UtcNow;
+
+            hasUnsavedChanges = true;
+            isKeyboardMoveMode = true;
+            lastKeyboardAction = $"Resized to {newWidth}×{newHeight}";
+
+            // Force re-render
+            canvasKey++;
+            StateHasChanged();
+
+            // Re-render chart if needed
+            if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
+                componentData.ContainsKey(selectedComponent.ComponentID))
+            {
+                //await Task.Delay(150);
+                //await RenderChart(selectedComponent);
+            }
+
+            Console.WriteLine($"⌨️ Resized '{selectedComponent.Title}' to {newWidth}×{newHeight}");
+        }
+    }
+
+    /// <summary>
+    /// Cycles to the next component (Tab key)
+    /// </summary>
+    [JSInvokable]
+    public void OnTabKey(bool shiftKey)
+    {
+        if (dashboard?.Components == null || !dashboard.Components.Any())
+        {
+            return;
+        }
+
+        if (isPreviewMode)
+        {
+            return;
+        }
+
+        var components = dashboard.Components.OrderBy(c => c.GridY).ThenBy(c => c.GridX).ToList();
+
+        if (selectedComponentId == 0)
+        {
+            // Select first component
+            SelectComponent(components.First().ComponentID);
+        }
+        else
+        {
+            int currentIndex = components.FindIndex(c => c.ComponentID == selectedComponentId);
+            int nextIndex;
+
+            if (shiftKey)
+            {
+                // Previous component
+                nextIndex = currentIndex <= 0 ? components.Count - 1 : currentIndex - 1;
+            }
+            else
+            {
+                // Next component
+                nextIndex = (currentIndex + 1) % components.Count;
+            }
+
+            SelectComponent(components[nextIndex].ComponentID);
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Handles Escape key - deselect component
+    /// </summary>
+    [JSInvokable]
+    public void OnEscapeKey()
+    {
+        if (selectedComponentId != 0)
+        {
+            selectedComponentId = 0;
+            isKeyboardMoveMode = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Handles Delete key - remove selected component
+    /// </summary>
+    [JSInvokable]
+    public void OnDeleteKey()
+    {
+        if (selectedComponentId != 0 && !isPreviewMode)
+        {
+            RemoveComponent(selectedComponentId);
+        }
+    }
+
+    /// <summary>
+    /// Handles Ctrl+D - duplicate selected component
+    /// </summary>
+    [JSInvokable]
+    public void OnDuplicateKey()
+    {
+        if (selectedComponent != null && !isPreviewMode)
+        {
+            DuplicateComponent(selectedComponent);
+        }
+    }
+
+    /// <summary>
+    /// Handles Ctrl+S - save dashboard
+    /// </summary>
+    [JSInvokable]
+    public async Task OnSaveKey()
+    {
+        if (!isPreviewMode)
+        {
+            await SaveDashboard();
+        }
+    }
+
+    private void OnDragStartFromLibrary(DragEventArgs e, DragComponentItem item)
+    {
+        isDragging = true;
+        draggedComponentType = item.Type;
+        draggedExistingComponentId = null;
+        dropIndicatorWidth = item.DefaultWidth;
+        dropIndicatorHeight = item.DefaultHeight;
+
+        Console.WriteLine($"🎯 Started dragging from library: {item.Title}");
+    }
+
+    private void OnDragStartExisting(DragEventArgs e, DashboardComponent component)
+    {
+        isDragging = true;
+        draggedComponentType = null;
+        draggedExistingComponentId = component.ComponentID;
+        dropIndicatorWidth = component.GridWidth;
+        dropIndicatorHeight = component.GridHeight;
+
+        Console.WriteLine($"🎯 Started moving component: {component.Title} (ID: {component.ComponentID})");
+    }
+
+    private void OnDragEnd(DragEventArgs e)
+    {
+        isDragging = false;
+        showDropIndicator = false;
+        draggedComponentType = null;
+        draggedExistingComponentId = null;
+        StateHasChanged();
+        Console.WriteLine("🛑 Drag ended");
+    }
+
+    private void OnDragLeaveCanvas(DragEventArgs e)
+    {
+        showDropIndicator = false;
+        StateHasChanged();
+    }
+
+    private async Task OnDropOnCanvas(DragEventArgs e)
+    {
+        if (!isDragging) return;
+
+        Console.WriteLine("📦 Drop detected on canvas");
+
+        var position = await CalculateGridPosition(e);
+
+        if (draggedExistingComponentId.HasValue)
+        {
+            await MoveExistingComponent(draggedExistingComponentId.Value, position.X, position.Y);
+        }
+        else if (!string.IsNullOrEmpty(draggedComponentType))
+        {
+            await CreateNewComponentAtPosition(draggedComponentType, position.X, position.Y);
+        }
+
+        isDragging = false;
+        draggedComponentType = null;
+        draggedExistingComponentId = null;
+        showDropIndicator = false;
+        hasUnsavedChanges = true;
+
+        StateHasChanged();
+    }
+
+    private async Task<(int X, int Y)> CalculateGridPosition(DragEventArgs e)
+    {
+        try
+        {
+            var bounds = await JSRuntime.InvokeAsync<CanvasBounds>("getElementBounds", canvasRef);
+
+            if (bounds == null)
+            {
+                Console.WriteLine("⚠️ Could not get canvas bounds");
+                return (0, 0);
+            }
+
+            double relativeX = e.ClientX - bounds.Left;
+            double relativeY = e.ClientY - bounds.Top;
+
+            relativeX += bounds.ScrollLeft;
+            relativeY += bounds.ScrollTop;
+
+            double colWidth = bounds.Width / 12.0;
+            double rowHeight = 100.0;
+
+            int gridX = (int)Math.Floor(relativeX / colWidth);
+            int gridY = (int)Math.Floor(relativeY / rowHeight);
+
+            gridX = Math.Max(0, Math.Min(gridX, 12 - dropIndicatorWidth));
+            gridY = Math.Max(0, gridY);
+
+            return (gridX, gridY);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error calculating position: {ex.Message}");
+            return (0, 0);
+        }
+    }
+
+    private async Task CreateNewComponentAtPosition(string componentType, int gridX, int gridY)
+    {
+        var libraryItem = dragComponentLibrary.FirstOrDefault(c => c.Type == componentType);
+        if (libraryItem == null)
+        {
+            Console.WriteLine($"❌ Unknown component type: {componentType}");
+            return;
+        }
+
+        int newId = dashboard.Components?.Any() == true
+            ? dashboard.Components.Max(c => c.ComponentID) + 1
+            : 1;
+
+        var newComponent = new DashboardComponent
+        {
+            ComponentID = newId,
+            DashboardID = dashboard.DashboardID,
+            Title = $"New {libraryItem.Title}",
+            Description = "",
+            DataViewingTypeID = libraryItem.DataViewingTypeID,
+            GridX = gridX,
+            GridY = gridY,
+            GridWidth = libraryItem.DefaultWidth,
+            GridHeight = libraryItem.DefaultHeight,
+            ChartType = libraryItem.ChartType,
+            QueryText = "",
+            QueryIntent = "",
+            VisualizationConfig = "{}",
+            FilterExpression = "",
+            IsVisible = true,
+            IsAIGenerated = false,
+            CreatedAt = DateTime.UtcNow,
+            LastUpdated = DateTime.UtcNow
+        };
+
+        dashboard.Components ??= new List<DashboardComponent>();
+        dashboard.Components.Add(newComponent);
+
+        selectedComponentId = newId;
+        selectedComponentType = libraryItem.DataViewingTypeID;
+
+        isComponentLoading[newId] = false;
+
+        canvasKey++;
+
+        ToastService.ShowSuccess($"{libraryItem.Title} added at ({gridX}, {gridY})! Configure it in the properties panel.");
+        Console.WriteLine($"✅ Created {libraryItem.Title} at position ({gridX}, {gridY})");
+    }
+
+    private void QuickAddComponent(DragComponentItem item)
+    {
+        var (x, y) = FindNextEmptyPosition(item.DefaultWidth, item.DefaultHeight);
+        _ = CreateNewComponentAtPosition(item.Type, x, y);
+    }
+
+    // ============================================
+    // DATA LOADING METHODS
+    // ============================================
+    private async Task LoadDashboard()
+    {
+        try
+        {
+            dashboard = await Http.GetFromJsonAsync<DashboardModel>($"api/dashboard/{DashboardId}");
+            if (dashboard == null)
+            {
+                dashboard = new DashboardModel();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error loading dashboard: {ex.Message}");
+            dashboard = new DashboardModel();
+        }
+    }
+
+    private async Task LoadCategories()
+    {
+        try
+        {
+            availableCategories = await Http.GetFromJsonAsync<List<DashboardCategory>>("api/dashboard/categories") ?? new List<DashboardCategory>();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error loading categories: {ex.Message}");
+        }
+    }
+
+    private async Task LoadDataSources()
+    {
+        try
+        {
+            var databases = await Http.GetFromJsonAsync<List<Database>>("api/databases") ?? new List<Database>();
+            availableDataSources = databases
+                .Where(db => db.IsActive)
+                .Select(db => new DataSource { Id = db.DatabaseID, Name = db.Name })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error loading data sources: {ex.Message}");
+        }
+    }
+
+    private void LoadComponentTemplates()
+    {
+        availableComponents = new List<ComponentTemplate>
+        {
+            new ComponentTemplate { Id = 1, Title = "Table", Description = "Display data in tabular format", DataViewingTypeID = (int)DataViewingTypeEnum.Table, Icon = "fa-table", Category = "Data Display" },
+            new ComponentTemplate { Id = 2, Title = "Bar Chart", Description = "Visualize data with bars", DataViewingTypeID = (int)DataViewingTypeEnum.Chart, Icon = "fa-chart-bar", Category = "Charts" },
+            new ComponentTemplate { Id = 3, Title = "Line Chart", Description = "Visualize trends over time", DataViewingTypeID = (int)DataViewingTypeEnum.Chart, Icon = "fa-chart-line", Category = "Charts" },
+            new ComponentTemplate { Id = 4, Title = "KPI Card", Description = "Display key metrics", DataViewingTypeID = (int)DataViewingTypeEnum.Number, Icon = "fa-chart-pie", Category = "Metrics" }
+        };
+    }
+
+    private async Task LoadTemplates()
+    {
+        try
+        {
+            availableTemplates = await Http.GetFromJsonAsync<List<DashboardTemplate>>("api/dashboard/templates") ?? new List<DashboardTemplate>();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error loading templates: {ex.Message}");
+            availableTemplates = new List<DashboardTemplate>();
+        }
+    }
+
+    private async Task LoadSuggestedQuestions()
+    {
+        if (dashboard.DatabaseID <= 0)
+        {
+            ToastService.ShowWarning("Please select a database first");
+            return;
+        }
+
+        isLoadingSuggestions = true;
+        suggestedQuestions.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.GetFromJsonAsync<List<string>>($"api/dashboard/suggest-questions/{dashboard.DatabaseID}");
+            if (response != null && response.Any())
+            {
+                suggestedQuestions = response;
+            }
+            else
+            {
+                ToastService.ShowInfo("No suggestions available for this schema");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError("Failed to load suggestions");
+            Console.WriteLine($"Error loading suggestions: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingSuggestions = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool isRenderingCharts = false; // Add this state variable
+
+    private async Task LoadAllComponentsData()
+    {
+        if (dashboard?.Components == null || !dashboard.Components.Any())
+        {
+            ToastService.ShowWarning("No components to load");
+            return;
+        }
+
+        if (dashboard.DatabaseID <= 0)
+        {
+            ToastService.ShowError("Please select a database first");
+            return;
+        }
+
+        isLoadingAllData = true;
+
+
+        try
+        {
+            foreach (var component in dashboard.Components)
+            {
+                if (!isComponentLoading.ContainsKey(component.ComponentID))
+                    isComponentLoading[component.ComponentID] = false;
+            }
+
+            var tasks = dashboard.Components
+                .Where(c => !string.IsNullOrEmpty(c.QueryText) && c.DataViewingTypeID != (int)DataViewingTypeEnum.Label)
+                .Select(c => LoadComponentDataAsync(c))
+                .ToList();
+
+            if (!tasks.Any())
+            {
+                ToastService.ShowWarning("No components have SQL queries");
+                return;
+            }
+
+            await Task.WhenAll(tasks);
+
+
+
+            // Only render charts if we're not already rendering
+            if (!isRenderingCharts)
+            {
+                isRenderingCharts = true;
+                await Task.Delay(200);
+                await RenderAllCharts();
+                isRenderingCharts = false;
+            }
+            StateHasChanged();
+            ToastService.ShowSuccess($"Loaded data for {tasks.Count} component(s)");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error: {ex.Message}");
+
+        }
+        finally
+        {
+            isLoadingAllData = false;
+            isRenderingCharts = false;
+
+        }
+    }
+
+    private async Task LoadComponentDataAsync(DashboardComponent component)
+    {
+        if (string.IsNullOrEmpty(component.QueryText)) return;
+
+        isComponentLoading[component.ComponentID] = true;
+        StateHasChanged();
+
+        try
+        {
+            var request = new SqlExecutionRequest
+            {
+                OriginalQuestion = "",
+                DatabaseId = dashboard.DatabaseID,
+                Sql = component.QueryText
+            };
+
+            var response = await Http.PostAsJsonAsync("api/query/execute", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<QueryExecutionResult>();
+                componentData[component.ComponentID] = result?.Success == true && result.Results != null
+                    ? result.Results
+                    : new List<Dictionary<string, object>>();
+            }
+            else
+            {
+                componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data for {component.ComponentID}: {ex.Message}");
+            componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+        }
+        finally
+        {
+            isComponentLoading[component.ComponentID] = false;
+            StateHasChanged();
+        }
+    }
+
+    // ============================================
+    // COMPONENT MANAGEMENT METHODS
+    // ============================================
+    private async Task OnAIComponentAdded()
+    {
+        hasUnsavedChanges = true;
+        StateHasChanged();
+
+        var newComponents = dashboard.Components
+            .Where(c => !string.IsNullOrEmpty(c.QueryText) &&
+                       !componentData.ContainsKey(c.ComponentID))
+            .ToList();
+
+        if (newComponents.Any())
+        {
+            Console.WriteLine($"Loading data for {newComponents.Count} new AI component(s)...");
+
+            foreach (var component in newComponents)
+            {
+                if (!isComponentLoading.ContainsKey(component.ComponentID))
+                {
+                    isComponentLoading[component.ComponentID] = false;
+                }
+                await LoadComponentDataAsync(component);
+            }
+
+            await Task.Delay(200);
+
+            var newCharts = newComponents.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart);
+            foreach (var chart in newCharts)
+            {
+                await RenderChart(chart);
+            }
+
+            Console.WriteLine($"✅ Loaded data for {newComponents.Count} AI component(s)");
+        }
+
+        ToastService.ShowSuccess("Component added successfully!");
+    }
+
+    private void SelectComponent(int componentId)
+    {
+        selectedComponentId = componentId;
+
+        if (selectedComponent != null)
+        {
+            selectedComponentType = selectedComponent.DataViewingTypeID;
+            componentTypeChanged = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void DuplicateComponent(DashboardComponent component)
+    {
+        var newComponent = new DashboardComponent
+        {
+            ComponentID = dashboard.Components.Max(c => c.ComponentID) + 1,
+            Title = component.Title + " (Copy)",
+            Description = component.Description,
+            DataViewingTypeID = component.DataViewingTypeID,
+            QueryText = component.QueryText,
+            QueryIntent = component.QueryIntent,
+            ChartType = component.ChartType,
+            GridX = component.GridX,
+            GridY = component.GridY + component.GridHeight,
+            GridWidth = component.GridWidth,
+            GridHeight = component.GridHeight,
+            IsAIGenerated = component.IsAIGenerated,
+            IsVisible = true,
+            CreatedAt = DateTime.UtcNow,
+            LastUpdated = DateTime.UtcNow
+        };
+
+        dashboard.Components.Add(newComponent);
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+        ToastService.ShowSuccess("Component duplicated!");
+    }
+
+    private void RemoveComponent(int componentId)
+    {
+        var component = dashboard.Components?.FirstOrDefault(c => c.ComponentID == componentId);
+        if (component != null)
+        {
+            dashboard.Components.Remove(component);
+            if (selectedComponentId == componentId)
+            {
+                selectedComponentId = 0;
+            }
+            componentData.Remove(componentId);
+            isComponentLoading.Remove(componentId);
+            hasUnsavedChanges = true;
+            canvasKey++;
+            StateHasChanged();
+            ToastService.ShowInfo("Component removed");
+        }
+    }
+
+    private void ClosePropertiesPanel()
+    {
+        selectedComponentId = 0;
+        StateHasChanged();
+    }
+
+    private async Task ApplyComponentChanges()
+    {
+        if (selectedComponent == null)
+        {
+            ToastService.ShowWarning("No component selected");
+            return;
+        }
+
+        selectedComponent.LastUpdated = DateTime.UtcNow;
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+
+        await Task.Delay(100);
+
+        if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
+            componentData.ContainsKey(selectedComponent.ComponentID))
+        {
+            //await RenderChart(selectedComponent);
+        }
+
+        ToastService.ShowSuccess("Changes applied!");
+    }
+
+    private async Task RegenerateComponent(DashboardComponent component)
+    {
+        if (component == null || dashboard.DatabaseID <= 0) return;
+
+        isRegenerating[component.ComponentID] = true;
+        StateHasChanged();
+
+        try
+        {
+            var request = new RegenerateComponentRequest
+            {
+                DatabaseId = dashboard.DatabaseID,
+                GridX = component.GridX,
+                GridY = component.GridY,
+                GridWidth = component.GridWidth,
+                GridHeight = component.GridHeight,
+                FailedTitle = component.Title,
+                FailedSql = component.QueryText,
+                ErrorMessage = componentErrors.ContainsKey(component.ComponentID) ? componentErrors[component.ComponentID] : "User requested regeneration",
+                ExistingTitles = dashboard.Components.Where(c => c.ComponentID != component.ComponentID).Select(c => c.Title).ToList(),
+                DataViewingTypeID = component.DataViewingTypeID,
+                ChartType = component.ChartType
+            };
+
+            var response = await Http.PostAsJsonAsync("api/assistant/regenerate", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AssistantSuggestionResponse>();
+
+                if (result?.Success == true && result.Suggestions?.Any() == true)
+                {
+                    var newSuggestion = result.Suggestions.First();
+                    component.Title = newSuggestion.Title;
+                    component.Description = newSuggestion.Description;
+                    component.QueryText = newSuggestion.SqlTemplate;
+
+                    componentErrors.Remove(component.ComponentID);
+                    componentData.Remove(component.ComponentID);
+
+                    await LoadComponentDataAsync(component);
+
+                    if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+                    {
+                        await Task.Delay(200);
+                        await RenderChart(component);
+                    }
+
+                    hasUnsavedChanges = true;
+                    ToastService.ShowSuccess($"Regenerated: {component.Title}");
+                }
+                else
+                {
+                    ToastService.ShowError(result?.Message ?? "Failed to regenerate");
+                }
+            }
+            else
+            {
+                ToastService.ShowError("Failed to regenerate component");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isRegenerating[component.ComponentID] = false;
+            StateHasChanged();
+        }
+    }
+
+    // ============================================
+    // CHART/VISUALIZATION METHODS
+    // ============================================
+    private string GetChartType(string visualizationConfig)
+    {
+        if (string.IsNullOrEmpty(visualizationConfig))
+            return "Bar";
+
+        try
+        {
+            var config = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(visualizationConfig);
+            if (config != null && config.ContainsKey("chartType"))
+            {
+                var chartType = config["chartType"].GetString();
+                return chartType switch
+                {
+                    "bar" => "Bar",
+                    "line" => "Line",
+                    "pie" => "Pie",
+                    "donut" => "Donut",
+                    "area" => "Area",
+                    _ => "Bar"
+                };
+            }
+        }
+        catch { }
+
+        return "Bar";
+    }
+
+    private string GetChartIcon(string chartType)
+    {
+        return chartType.ToLower() switch
+        {
+            "bar" => "bar",
+            "line" => "line",
+            "pie" => "pie-chart",
+            "donut" => "chart-pie",
+            "area" => "area-chart",
+            _ => "bar"
+        };
+    }
+
+    private string GetComponentChartType()
+    {
+        if (selectedComponent == null || string.IsNullOrEmpty(selectedComponent.ChartType))
+            return "bar";
+        return selectedComponent.ChartType;
+    }
+
+    private void UpdateChartType(string chartType)
+    {
+        if (selectedComponent == null) return;
+        selectedComponent.ChartType = chartType;
+        hasUnsavedChanges = true;
+        StateHasChanged();
+    }
+
+    private void UpdateComponentSize(int width, int height)
+    {
+        if (selectedComponent == null) return;
+        selectedComponent.GridWidth = width;
+        selectedComponent.GridHeight = height;
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+    }
+
+    private async Task RenderChart(DashboardComponent component)
+    {
+        try
+        {
+            if (!componentData.ContainsKey(component.ComponentID)) return;
+
+            var data = componentData[component.ComponentID];
+            if (data == null || !data.Any()) return;
+
+            var chartType = component.ChartType?.ToLower() ?? "bar";
+
+            await JSRuntime.InvokeVoidAsync("renderDynamicChart",
+                component.ComponentID,
+                chartType,
+                data,
+                component.Title);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering chart {component.ComponentID}: {ex.Message}");
+        }
+    }
+
+    private async Task RenderAllCharts()
+    {
+        await Task.Delay(100);
+
+        var chartComponents = dashboard.Components
+            .Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart && c.IsVisible && componentData.ContainsKey(c.ComponentID))
+            .ToList();
+
+        foreach (var chart in chartComponents)
+        {
+            await RenderChart(chart);
+        }
+    }
+
+    // ============================================
+    // SQL EDITING METHODS
+    // ============================================
+    private void EnableSqlEdit()
+    {
+        isEditingSql = true;
+        editingSqlText = selectedComponent?.QueryText ?? "";
+        StateHasChanged();
+    }
+
+    private void SaveSqlEdit()
+    {
+        if (selectedComponent != null && !string.IsNullOrWhiteSpace(editingSqlText))
+        {
+            selectedComponent.QueryText = editingSqlText.Trim();
+            hasUnsavedChanges = true;
+            ToastService.ShowSuccess("SQL query updated");
+        }
+        isEditingSql = false;
+        StateHasChanged();
+    }
+
+    private void CancelSqlEdit()
+    {
+        isEditingSql = false;
+        editingSqlText = "";
+        StateHasChanged();
+    }
+
+    private void AddComponentSQL()
+    {
+        isEditingSql = true;
+        editingSqlText = "-- Enter your SQL query here\nSELECT * FROM ";
+        StateHasChanged();
+    }
+
+    // ============================================
+    // DASHBOARD MANAGEMENT METHODS
+    // ============================================
+    private void OnComponentTypeChanged()
+    {
+        if (selectedComponent == null) return;
+
+        selectedComponent.DataViewingTypeID = selectedComponentType;
+
+        if (selectedComponentType != 4)
+        {
+            selectedComponent.ChartType = null;
+        }
+        else if (string.IsNullOrEmpty(selectedComponent.ChartType))
+        {
+            selectedComponent.ChartType = "bar";
+        }
+
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+    }
+
+    private bool CanSave()
+    {
+        return dashboard != null &&
+               !string.IsNullOrWhiteSpace(dashboard.Title) &&
+               dashboard.DatabaseID > 0;
+    }
+
+    private async Task SaveDashboard()
+    {
+        if (!CanSave())
+        {
+            ToastService.ShowError("Please enter a title and select a database");
+            return;
+        }
+
+        try
+        {
+            PrepareDashboardForSave();
+            dashboard.LastUpdated = DateTime.UtcNow;
+
+            HttpResponseMessage response;
+            if (dashboard.DashboardID > 0)
+            {
+                response = await Http.PutAsJsonAsync($"api/dashboard/{dashboard.DashboardID}", dashboard);
+            }
+            else
+            {
+                response = await Http.PostAsJsonAsync("api/dashboard", dashboard);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                hasUnsavedChanges = false;
+
+                if (dashboard.DashboardID == 0)
+                {
+                    var createdDashboard = await response.Content.ReadFromJsonAsync<DashboardModel>();
+                    if (createdDashboard != null)
+                    {
+                        dashboard = createdDashboard;
+                        NavigationManager.NavigateTo($"/dashboard/builder/{dashboard.DashboardID}", false);
+                    }
+                }
+
+                ToastService.ShowSuccess("Dashboard saved successfully!");
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                ToastService.ShowError($"Save failed: {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private void PrepareDashboardForSave()
+    {
+        // Ensure required string fields are not null
+        dashboard.LayoutConfig ??= "{}";
+        dashboard.FiltersConfig ??= "{}";
+        dashboard.Title ??= "Untitled Dashboard";
+        dashboard.Description ??= "";
+
+        // Set CategoryName properly
+        if (dashboard.CategoryID > 0 && availableCategories.Any())
+        {
+            var category = availableCategories.FirstOrDefault(c => c.CategoryID == dashboard.CategoryID);
+            dashboard.CategoryName = category?.Name ?? "General";
+        }
+        else
+        {
+            dashboard.CategoryName = "General";
+        }
+
+        // Set created by if not set
+        if (dashboard.CreatedBy == 0)
+        {
+            dashboard.CreatedBy = 1; // Default user ID
+        }
+
+        // Set timestamps
+        if (dashboard.CreatedAt == default)
+        {
+            dashboard.CreatedAt = DateTime.UtcNow;
+        }
+        dashboard.LastUpdated = DateTime.UtcNow;
+
+        // Set validation status if not set
+        if (dashboard.ValidationStatus == DashboardValidationStatus.PendingValidation)
+        {
+            dashboard.ValidationStatus = DashboardValidationStatus.Validated;
+        }
+
+        // // Set sharing status if not set
+        // if (dashboard.SharingStatus == DashboardSharingStatus.NotSet)
+        // {
+        //     dashboard.SharingStatus = DashboardSharingStatus.Private;
+        // }
+
+        // Prepare components
+        if (dashboard.Components != null)
+        {
+            foreach (var component in dashboard.Components)
+            {
+                PrepareComponentForSave(component);
+            }
+        }
+    }
+
+    private void PrepareComponentForSave(DashboardComponent component)
+    {
+        // Set required string fields
+        component.Title ??= string.Empty;
+        component.Description ??= "";
+        component.QueryText ??= "";
+        component.QueryIntent ??= "";
+        component.FilterExpression ??= "";
+        component.VisualizationConfig ??= "{}";
+
+        // Set ChartType based on DataViewingTypeID
+        if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+        {
+            component.ChartType ??= "bar"; // Default chart type
+        }
+        else
+        {
+            component.ChartType = ""; // Empty for non-chart components
+        }
+
+        // Set DataViewingTypeName based on DataViewingTypeID
+        component.DataViewingTypeName = component.DataViewingTypeID switch
+        {
+            1 => "Table",
+            2 => "Label",
+            3 => "KPI",
+            4 => "Chart",
+            _ => "Unknown"
+        };
+
+        // Set timestamps
+        if (component.CreatedAt == default)
+        {
+            component.CreatedAt = DateTime.UtcNow;
+        }
+        component.LastUpdated = DateTime.UtcNow;
+
+        // Ensure GridX and GridY are valid (non-negative)
+        component.GridX = Math.Max(0, component.GridX);
+        component.GridY = Math.Max(0, component.GridY);
+
+        // Ensure GridWidth and GridHeight are at least 1
+        component.GridWidth = Math.Max(1, component.GridWidth);
+        component.GridHeight = Math.Max(1, component.GridHeight);
+
+        // Ensure GridWidth doesn't exceed 12
+        component.GridWidth = Math.Min(12, component.GridWidth);
+
+        // Ensure IsVisible is set
+        component.IsVisible = true;
+    }
+
+    private async Task TogglePreviewMode()
+    {
+        isPreviewMode = !isPreviewMode;
+
+        if (isPreviewMode)
+        {
+            selectedComponentId = 0;
+            if (!componentData.Any())
+            {
+                await LoadAllComponentsData();
+            }
+            else
+            {
+                StateHasChanged();
+                await Task.Delay(200);
+                await RenderAllCharts();
+            }
+        }
+        else
+        {
+            StateHasChanged();
+            await Task.Delay(200);
+            await RenderAllCharts();
+        }
+    }
+
+    private void ZoomIn() { if (zoomLevel < 1.5) zoomLevel += 0.1; }
+    private void ZoomOut() { if (zoomLevel > 0.5) zoomLevel -= 0.1; }
+    private void ResetZoom() { zoomLevel = 1.0; }
+
+    private void ShowDashboardSettings()
+    {
+        showSettingsModal = true;
+        StateHasChanged();
+    }
+
+    private void AutoArrangeComponents()
+    {
+        if (dashboard?.Components == null || !dashboard.Components.Any()) return;
+
+        int currentX = 0;
+        int currentY = 0;
+        int currentRowMaxHeight = 0;
+        const int maxColumns = 12;
+
+        var sortedComponents = dashboard.Components.OrderBy(c => c.GridY).ThenBy(c => c.GridX).ToList();
+
+        foreach (var component in sortedComponents)
+        {
+            if (currentX + component.GridWidth > maxColumns)
+            {
+                currentX = 0;
+                currentY += currentRowMaxHeight;
+                currentRowMaxHeight = 0;
+            }
+
+            component.GridX = currentX;
+            component.GridY = currentY;
+            currentRowMaxHeight = Math.Max(currentRowMaxHeight, component.GridHeight);
+            currentX += component.GridWidth;
+        }
+
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+        ToastService.ShowSuccess("Components auto-arranged!");
+    }
+
+    private async Task CloseDashboard()
+    {
+        if (hasUnsavedChanges)
+        {
+            bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "You have unsaved changes. Close anyway?");
+            if (!confirmed) return;
+        }
+        NavigationManager.NavigateTo("/dashboards");
+    }
+
+    private int GetGridHeight()
+    {
+        if (dashboard.Components == null || !dashboard.Components.Any()) return 10;
+        return Math.Max(10, dashboard.Components.Max(c => c.GridY + c.GridHeight) + 2);
+    }
+
+    // ============================================
+    // CHART CREATION METHODS
+    // ============================================
+    private void ShowAddComponentModal()
+    {
+        if (dashboard.DatabaseID <= 0)
+        {
+            ToastService.ShowWarning("Please select a database first");
+            return;
+        }
+
+        addChartStep = 1;
+        customChartQuery = "";
+        customChartTitle = "";
+        selectedComponentTypeForCustom = 4; // Default to Chart
+        customChartType = "bar";
+        customChartSql = "";
+        customChartExplanation = "";
+        analysisResponse = null;
+        showAddChartModal = true;
+    }
+
+    private void CloseAddChartModal()
+    {
+        showAddChartModal = false;
+    }
+
+    private async Task AnalyzeChartQuery()
+    {
+        if (string.IsNullOrWhiteSpace(customChartQuery))
+        {
+            ToastService.ShowWarning("Please enter a description");
+            return;
+        }
+
+        isAnalyzing = true;
+        StateHasChanged();
+
+        try
+        {
+            var request = new NlQueryRequest { Question = customChartQuery, DatabaseId = dashboard.DatabaseID };
+            var response = await Http.PostAsJsonAsync("api/query/analyze-chart", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var chartExplanation = await response.Content.ReadFromJsonAsync<ChartExplanationResponse>();
+
+                if (chartExplanation != null && chartExplanation.Success)
+                {
+                    customChartExplanation = chartExplanation.Explanation;
+                    analysisResponse = new AnalysisResponse { Explanation = chartExplanation.Explanation, Success = true };
+
+                    if (string.IsNullOrWhiteSpace(customChartTitle))
+                    {
+                        customChartTitle = GenerateTitleFromQuestion(customChartQuery);
+                    }
+
+                    addChartStep = 2;
+                    ToastService.ShowSuccess("Query analyzed!");
+                }
+                else
+                {
+                    ToastService.ShowError(chartExplanation?.ErrorMessage ?? "Failed to analyze query");
+                }
+            }
+            else
+            {
+                ToastService.ShowError("Failed to analyze query");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isAnalyzing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GenerateSqlAndAddComponent()
+    {
+        if (string.IsNullOrWhiteSpace(customChartTitle))
+        {
+            ToastService.ShowWarning("Please enter a component title");
+            return;
+        }
+
+        isGeneratingSql = true;
+        StateHasChanged();
+
+        try
+        {
+            var request = new NlQueryConfirmationRequest
+            {
+                OriginalQuestion = customChartQuery,
+                DatabaseId = dashboard.DatabaseID,
+                ConfirmedUnderstanding = analysisResponse?.Explanation ?? "",
+                ResolvedAmbiguities = new Dictionary<string, string>(),
+                AdjustedParameters = new Dictionary<string, string>()
+            };
+
+            var response = await Http.PostAsJsonAsync("api/query/generate", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var sqlResponse = await response.Content.ReadFromJsonAsync<SqlGenerationResponse>();
+
+                if (sqlResponse != null && sqlResponse.Success)
+                {
+                    customChartSql = sqlResponse.GeneratedSql;
+                    await AddCustomComponentToDashboard();
+                    addChartStep = 3;
+                    ToastService.ShowSuccess($"{GetComponentTypeName(selectedComponentTypeForCustom)} added!");
+                }
+                else
+                {
+                    ToastService.ShowError("Failed to generate SQL");
+                }
+            }
+            else
+            {
+                ToastService.ShowError("Failed to generate SQL");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isGeneratingSql = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddCustomComponentToDashboard()
+    {
+        // Determine default size based on component type
+        int width, height;
+        switch (selectedComponentTypeForCustom)
+        {
+            case 1: // Table
+                width = 6; height = 4;
+                break;
+            case 3: // KPI
+                width = 3; height = 2;
+                break;
+            case 4: // Chart
+                width = 6; height = 4;
+                break;
+            default:
+                width = 4; height = 3;
+                break;
+        }
+
+        var (x, y) = FindNextEmptyPosition(width, height);
+
+        var newComponent = new DashboardComponent
+        {
+            ComponentID = dashboard.Components.Any() ? dashboard.Components.Max(c => c.ComponentID) + 1 : 1,
+            Title = customChartTitle,
+            Description = customChartExplanation,
+            QueryText = customChartSql,
+            QueryIntent = customChartQuery,
+            DataViewingTypeID = selectedComponentTypeForCustom,
+            ChartType = selectedComponentTypeForCustom == 4 ? customChartType : null, // Only set for charts
+            GridX = x,
+            GridY = y,
+            GridWidth = width,
+            GridHeight = height,
+            VisualizationConfig = BuildVisualizationConfig(), // Build config based on type
+            FilterExpression = "",
+            IsAIGenerated = true,
+            IsVisible = true,
+            CreatedAt = DateTime.UtcNow,
+            LastUpdated = DateTime.UtcNow
+        };
+
+        dashboard.Components.Add(newComponent);
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+
+        // Wait for DOM to update
+        await Task.Delay(300);
+
+        if (!string.IsNullOrEmpty(newComponent.QueryText))
+        {
+            isComponentLoading[newComponent.ComponentID] = false;
+            await LoadComponentDataAsync(newComponent);
+            await Task.Delay(300); // Wait for data to load
+
+            // Render based on component type
+            if (newComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+            {
+                await RenderChart(newComponent);
+            }
+            // Table and KPI will render automatically when data is loaded
+        }
+    }
+
+    // Helper method to build visualization config
+    private string BuildVisualizationConfig()
+    {
+        var config = new Dictionary<string, object>();
+
+        if (selectedComponentTypeForCustom == 3) // KPI
+        {
+            config["numberFormat"] = kpiNumberFormat;
+            config["decimalPlaces"] = kpiDecimalPlaces;
+            config["prefix"] = kpiPrefix;
+            config["suffix"] = kpiSuffix;
+        }
+        else if (selectedComponentTypeForCustom == 4) // Chart
+        {
+            config["chartType"] = customChartType;
+        }
+        else if (selectedComponentTypeForCustom == 1) // Table
+        {
+            config["pageSize"] = 10;
+            config["enableSearch"] = true;
+            config["enableSort"] = true;
+        }
+
+        return JsonSerializer.Serialize(config);
+    }
+
+    private async Task AddCustomChartToDashboard()
+    {
+        int width = 6;
+        int height = 4;
+        var (x, y) = FindNextEmptyPosition(width, height);
+
+        var newComponent = new DashboardComponent
+        {
+            ComponentID = dashboard.Components.Any() ? dashboard.Components.Max(c => c.ComponentID) + 1 : 1,
+            Title = customChartTitle,
+            Description = customChartExplanation,
+            QueryText = customChartSql,
+            QueryIntent = customChartQuery,
+            DataViewingTypeID = (int)DataViewingTypeEnum.Chart,
+            ChartType = customChartType,
+            GridX = x,
+            GridY = y,
+            GridWidth = width,
+            GridHeight = height,
+            VisualizationConfig = "{}",
+            FilterExpression = "",
+            IsAIGenerated = true,
+            IsVisible = true,
+            CreatedAt = DateTime.UtcNow,
+            LastUpdated = DateTime.UtcNow
+        };
+
+        dashboard.Components.Add(newComponent);
+        hasUnsavedChanges = true;
+        canvasKey++;
+        StateHasChanged();
+
+        if (!string.IsNullOrEmpty(newComponent.QueryText))
+        {
+            isComponentLoading[newComponent.ComponentID] = false;
+            await LoadComponentDataAsync(newComponent);
+            await Task.Delay(200);
+            await RenderChart(newComponent);
+        }
+    }
+
+    // ============================================
+    // TEMPLATE METHODS
+    // ============================================
+    private void ShowTemplateModal()
+    {
+        selectedTemplateId = "";
+        selectedDatabaseIdForTemplate = 0;
+        showTemplateModal = true;
+    }
+
+    private void CloseTemplateModal()
+    {
+        showTemplateModal = false;
+        isGeneratingFromTemplate = false;
+    }
+
+    private async Task GenerateWithSelectedTemplate()
+    {
+        if (selectedDatabaseIdForTemplate == 0)
+        {
+            ToastService.ShowError("Please select a database");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(selectedTemplateId))
+        {
+            ToastService.ShowError("Please select a template");
+            return;
+        }
+
+        isGeneratingFromTemplate = true;
+
+        try
+        {
+            var request = new { DatabaseId = selectedDatabaseIdForTemplate, TemplateId = selectedTemplateId };
+            var response = await Http.PostAsJsonAsync("api/dashboard/generate-with-template", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var dashboards = await response.Content.ReadFromJsonAsync<List<DashboardModel>>();
+
+                if (dashboards != null && dashboards.Any())
+                {
+                    dashboard = dashboards[0];
+                    dashboard.DatabaseID = selectedDatabaseIdForTemplate;
+                    PrepareDashboardForSave();
+
+                    ToastService.ShowSuccess($"Dashboard generated with {dashboard.Components.Count} components!");
+                    CloseTemplateModal();
+                    StateHasChanged();
+                }
+                else
+                {
+                    ToastService.ShowError("No dashboards returned from API");
+                }
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                ToastService.ShowError($"Generation failed: {error}");
+                CloseTemplateModal();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isGeneratingFromTemplate = false;
+        }
+    }
+
+    private async Task EnsureChartsRendered()
+    {
+        await Task.Delay(100); // Small delay for DOM to be ready
+
+        var chartComponents = dashboard.Components?
+            .Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
+                       c.IsVisible &&
+                       componentData.ContainsKey(c.ComponentID))
+            .ToList();
+
+        if (chartComponents?.Any() == true)
+        {
+            foreach (var chart in chartComponents)
+            {
+                await RenderChart(chart);
+            }
+        }
+    }
+
+    // ============================================
+    // UTILITY METHODS
+    // ============================================
+    private void UseSuggestion(string question)
+    {
+        customChartQuery = question;
+        suggestedQuestions.Clear();
+        StateHasChanged();
+    }
+
+    private void ClearSuggestions()
+    {
+        suggestedQuestions.Clear();
+    }
+
+    private (int GridX, int GridY) FindNextEmptyPosition(int width, int height)
+    {
+        const int maxColumns = 12;
+
+        if (dashboard?.Components == null || !dashboard.Components.Any())
+            return (0, 0);
+
+        int maxY = dashboard.Components.Max(c => c.GridY + c.GridHeight) + height + 10;
+        bool[,] occupied = new bool[maxColumns, maxY];
+
+        foreach (var comp in dashboard.Components)
+        {
+            for (int x = comp.GridX; x < Math.Min(comp.GridX + comp.GridWidth, maxColumns); x++)
+            {
+                for (int y = comp.GridY; y < Math.Min(comp.GridY + comp.GridHeight, maxY); y++)
+                {
+                    occupied[x, y] = true;
+                }
+            }
+        }
+
+        for (int y = 0; y < maxY; y++)
+        {
+            for (int x = 0; x <= maxColumns - width; x++)
+            {
+                bool canFit = true;
+                for (int cx = x; cx < x + width && canFit; cx++)
+                {
+                    for (int cy = y; cy < y + height && cy < maxY && canFit; cy++)
+                    {
+                        if (occupied[cx, cy]) canFit = false;
+                    }
+                }
+                if (canFit) return (x, y);
+            }
+        }
+
+        return (0, dashboard.Components.Max(c => c.GridY + c.GridHeight));
+    }
+
+    private string GenerateTitleFromQuestion(string question)
+    {
+        var words = question.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Take(6)
+            .Select(w => char.ToUpper(w[0]) + (w.Length > 1 ? w.Substring(1).ToLower() : ""));
+        var title = string.Join(" ", words).TrimEnd('.', '?', '!');
+        return title.Length > 50 ? title.Substring(0, 47) + "..." : title;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        ToastService.ShowSuccess("Copied to clipboard!");
+    }
+
+    private List<Dictionary<string, object>> GetComponentData(int componentId)
+    {
+        return componentData.ContainsKey(componentId) ? componentData[componentId] : new List<Dictionary<string, object>>();
+    }
+
+    private bool IsComponentLoading(int componentId)
+    {
+        return isComponentLoading.ContainsKey(componentId) && isComponentLoading[componentId];
+    }
+
+    private string GetComponentIcon(int dataViewingTypeID)
+    {
+        return dataViewingTypeID switch
+        {
+            1 => "fa-table",
+            2 => "fa-font",
+            3 => "fa-tachometer-alt",
+            4 => "fa-chart-bar",
+            _ => "fa-cube"
+        };
+    }
+
+    private string GetComponentTypeName(int dataViewingTypeID)
+    {
+        return dataViewingTypeID switch
+        {
+            1 => "Table",
+            2 => "Label",
+            3 => "KPI",
+            4 => "Chart",
+            _ => "Unknown"
+        };
+    }
+
+    private string FormatNumber(object value)
+    {
+        if (value == null) return "0";
+        if (decimal.TryParse(value.ToString(), out decimal d))
+        {
+            return d == Math.Floor(d) ? d.ToString("N0") : d.ToString("N2");
+        }
+        return value.ToString();
+    }
+
+    private string GetTemplateIcon(string category)
+    {
+        return category?.ToLower() switch
+        {
+            "executive" => "fas fa-crown",
+            "operations" => "fas fa-cogs",
+            "finance" => "fas fa-dollar-sign",
+            "analytics" => "fas fa-chart-pie",
+            "basic" => "fas fa-th-large",
+            _ => "fas fa-chart-bar"
+        };
+    }
+
+    // Add to your state variables
+    private Dictionary<int, List<int>> componentOccupancyMap = new Dictionary<int, List<int>>();
+    private bool showGridLines = true;
+    private int gridSnapSize = 1;
+
+    // Enhanced: Calculate Grid Position with Snap-to-Grid
+    private async Task<(int X, int Y)> CalculateGridPosition(MouseEventArgs e, bool snapToGrid = true)
+    {
+        try
+        {
+            var bounds = await JSRuntime.InvokeAsync<CanvasBounds>("getElementBounds", canvasRef);
+
+            if (bounds == null)
+            {
+                Console.WriteLine("⚠️ Could not get canvas bounds");
+                return (0, 0);
+            }
+
+            // Calculate relative position within canvas
+            double relativeX = e.ClientX - bounds.Left;
+            double relativeY = e.ClientY - bounds.Top;
+
+            // Account for scroll position
+            relativeX += bounds.ScrollLeft;
+            relativeY += bounds.ScrollTop;
+
+            // Calculate column width (12 column grid)
+            double colWidth = bounds.Width / 12.0;
+            double rowHeight = 100.0;
+
+            // Calculate grid position
+            int gridX = (int)Math.Floor(relativeX / colWidth);
+            int gridY = (int)Math.Floor(relativeY / rowHeight);
+
+            // Snap to grid if enabled
+            if (snapToGrid && gridSnapSize > 1)
+            {
+                gridX = (int)(Math.Round((double)gridX / gridSnapSize) * gridSnapSize);
+                gridY = (int)(Math.Round((double)gridY / gridSnapSize) * gridSnapSize);
+            }
+
+            // Clamp to valid range
+            gridX = Math.Max(0, Math.Min(gridX, 12 - dropIndicatorWidth));
+            gridY = Math.Max(0, gridY);
+
+            return (gridX, gridY);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error calculating position: {ex.Message}");
+            return (0, 0);
+        }
+    }
+
+    // NEW: Check if position is available for component placement
+    private bool CanPlaceComponentAtPosition(int gridX, int gridY, int width, int height, int? excludeComponentId = null)
+    {
+        if (dashboard.Components == null || !dashboard.Components.Any())
+            return true;
+
+        // Build occupancy map if not already built
+        UpdateOccupancyMap();
+
+        for (int x = gridX; x < gridX + width && x < 12; x++)
+        {
+            for (int y = gridY; y < gridY + height; y++)
+            {
+                if (componentOccupancyMap.ContainsKey(y))
+                {
+                    if (componentOccupancyMap[y].Contains(x))
+                    {
+                        // Check if this cell is occupied by the excluded component
+                        if (!IsCellOccupiedByComponent(x, y, excludeComponentId))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // NEW: Check if cell is occupied by specific component
+    private bool IsCellOccupiedByComponent(int x, int y, int? componentId)
+    {
+        if (!componentId.HasValue || dashboard.Components == null)
+            return false;
+
+        var component = dashboard.Components.FirstOrDefault(c => c.ComponentID == componentId.Value);
+        if (component == null)
+            return false;
+
+        return x >= component.GridX && x < component.GridX + component.GridWidth &&
+               y >= component.GridY && y < component.GridY + component.GridHeight;
+    }
+
+    // NEW: Update occupancy map
+    private void UpdateOccupancyMap()
+    {
+        componentOccupancyMap.Clear();
+
+        if (dashboard.Components == null)
+            return;
+
+        foreach (var component in dashboard.Components)
+        {
+            for (int y = component.GridY; y < component.GridY + component.GridHeight; y++)
+            {
+                if (!componentOccupancyMap.ContainsKey(y))
+                    componentOccupancyMap[y] = new List<int>();
+
+                for (int x = component.GridX; x < component.GridX + component.GridWidth && x < 12; x++)
+                {
+                    if (!componentOccupancyMap[y].Contains(x))
+                        componentOccupancyMap[y].Add(x);
+                }
+            }
+        }
+    }
+
+    private bool isResizing = false;
+    private int? resizingComponentId = null;
+    private string resizeDirection = "";
+
+
+    // Add resize methods
+    private void StartResize(MouseEventArgs e, int componentId, string direction)
+    {
+        isResizing = true;
+        resizingComponentId = componentId;
+        resizeDirection = direction;
+
+        // Add global mouse event listeners
+        JSRuntime.InvokeVoidAsync("addResizeListeners",
+            DotNetObjectReference.Create(this));
+    }
+
+    [JSInvokable]
+    public async Task OnResizeMove(MouseEventArgs e)
+    {
+        if (!isResizing || !resizingComponentId.HasValue) return;
+
+        var component = dashboard.Components?.FirstOrDefault(c => c.ComponentID == resizingComponentId.Value);
+        if (component == null) return;
+
+        var position = await CalculateGridPosition(e, false);
+
+        // Calculate new size based on direction
+        // Implementation depends on your grid system
+        // This is a simplified example
+        if (resizeDirection.Contains("e"))
+        {
+            int newWidth = Math.Max(1, position.X - component.GridX + 1);
+            component.GridWidth = Math.Min(12, newWidth);
+        }
+
+        if (resizeDirection.Contains("s"))
+        {
+            int newHeight = Math.Max(1, position.Y - component.GridY + 1);
+            component.GridHeight = Math.Max(1, newHeight);
+        }
+
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnResizeEnd()
+    {
+        isResizing = false;
+        resizingComponentId = null;
+        resizeDirection = "";
+        hasUnsavedChanges = true;
+        UpdateOccupancyMap();
+        StateHasChanged();
+    }
+
+
+    // NEW: Find nearest available position
+    private (int X, int Y) FindNearestAvailablePosition(int startX, int startY, int width, int height)
+    {
+        int maxX = 12 - width;
+        int maxY = GetGridHeight() - height;
+
+        // Check immediate position
+        if (CanPlaceComponentAtPosition(startX, startY, width, height))
+            return (startX, startY);
+
+        // Search in expanding radius
+        for (int radius = 1; radius <= 10; radius++)
+        {
+            for (int dy = -radius; dy <= radius; dy++)
+            {
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    if (Math.Abs(dx) == radius || Math.Abs(dy) == radius)
+                    {
+                        int newX = startX + dx;
+                        int newY = startY + dy;
+
+                        if (newX >= 0 && newX <= maxX && newY >= 0 && newY <= maxY)
+                        {
+                            if (CanPlaceComponentAtPosition(newX, newY, width, height))
+                                return (newX, newY);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no position found, place at the bottom
+        return (0, Math.Max(0, GetGridHeight() + 2));
+    }
+
+
+
+    // Enhanced: Move Existing Component with collision detection
+    private async Task MoveExistingComponent(int componentId, int newX, int newY)
+    {
+        var component = dashboard.Components?.FirstOrDefault(c => c.ComponentID == componentId);
+        if (component == null)
+        {
+            Console.WriteLine($"❌ Component not found: {componentId}");
+            return;
+        }
+
+        // Check if the new position is available (excluding the component being moved)
+        if (!CanPlaceComponentAtPosition(newX, newY, component.GridWidth, component.GridHeight, componentId))
+        {
+            // Find nearest available position
+            var nearestPosition = FindNearestAvailablePosition(newX, newY, component.GridWidth, component.GridHeight);
+            newX = nearestPosition.X;
+            newY = nearestPosition.Y;
+
+            ToastService.ShowInfo($"Component moved to nearest available position ({newX}, {newY})");
+        }
+
+        int oldX = component.GridX;
+        int oldY = component.GridY;
+
+        component.GridX = newX;
+        component.GridY = newY;
+        component.LastUpdated = DateTime.UtcNow;
+
+        // Update occupancy map
+        UpdateOccupancyMap();
+
+        canvasKey++;
+
+        Console.WriteLine($"✅ Moved '{component.Title}' from ({oldX}, {oldY}) to ({newX}, {newY})");
+    }
+
+    // Enhanced: OnDragOverCanvas with visual feedback
+    private async Task OnDragOverCanvas(DragEventArgs e)
+    {
+        if (!isDragging) return;
+
+        var position = await CalculateGridPosition(e);
+
+        // Check if position is available
+        bool canPlace = true;
+        if (draggedExistingComponentId.HasValue)
+        {
+            var component = dashboard.Components?.FirstOrDefault(c => c.ComponentID == draggedExistingComponentId.Value);
+            if (component != null)
+            {
+                canPlace = CanPlaceComponentAtPosition(position.X, position.Y,
+                    component.GridWidth, component.GridHeight, draggedExistingComponentId);
+            }
+        }
+        else if (!string.IsNullOrEmpty(draggedComponentType))
+        {
+            var libraryItem = dragComponentLibrary.FirstOrDefault(c => c.Type == draggedComponentType);
+            if (libraryItem != null)
+            {
+                canPlace = CanPlaceComponentAtPosition(position.X, position.Y,
+                    libraryItem.DefaultWidth, libraryItem.DefaultHeight);
+            }
+        }
+
+        // Update drop indicator style based on availability
+        dropIndicatorX = position.X;
+        dropIndicatorY = position.Y;
+        showDropIndicator = true;
+
+        // Update CSS class for visual feedback
+        await JSRuntime.InvokeVoidAsync("updateDropIndicator", canPlace);
+    }
+
+    // NEW: Toggle Grid Lines
+    private void ToggleGridLines()
+    {
+        showGridLines = !showGridLines;
+        StateHasChanged();
+        ToastService.ShowInfo($"Grid lines {(showGridLines ? "enabled" : "disabled")}");
+    }
+
+    // NEW: Set Grid Snap Size
+    private void SetGridSnapSize(int size)
+    {
+        gridSnapSize = Math.Max(1, Math.Min(3, size));
+        StateHasChanged();
+        ToastService.ShowInfo($"Grid snap set to {gridSnapSize}");
+    }
+
+    // ============================================
+    // HELPER CLASSES
+    // ============================================
+    public class DataSource
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+    }
+
+    public class ComponentTemplate
+    {
+        public int Id { get; set; }
+        public string Title { get; set; }
+        public string Description { get; set; }
+        public int DataViewingTypeID { get; set; }
+        public string Icon { get; set; }
+        public string Category { get; set; }
+        public string VisualizationConfig { get; set; }
+    }
+
+    private class AnalysisResponse
+    {
+        public string Explanation { get; set; }
+        public bool Success { get; set; }
+    }
+
+    private class SqlGenerationResponse
+    {
+        public string OriginalQuestion { get; set; }
+        public int DatabaseId { get; set; }
+        public string GeneratedSql { get; set; }
+        public bool Success { get; set; }
+        public string ErrorMessage { get; set; }
+    }
+
+    private class NlQueryRequest
+    {
+        public string Question { get; set; }
+        public int DatabaseId { get; set; }
+    }
+
+    private class NlQueryConfirmationRequest
+    {
+        public string OriginalQuestion { get; set; }
+        public int DatabaseId { get; set; }
+        public string ConfirmedUnderstanding { get; set; }
+        public Dictionary<string, string> ResolvedAmbiguities { get; set; }
+        public Dictionary<string, string> AdjustedParameters { get; set; }
+    }
+
+    private class ChartExplanationResponse
+    {
+        public string Question { get; set; }
+        public int DatabaseId { get; set; }
+        public string Explanation { get; set; }
+        public bool Success { get; set; }
+        public string ErrorMessage { get; set; }
+    }
+
+    private class QueryExecutionResult
+    {
+        public bool Success { get; set; }
+        public List<Dictionary<string, object>> Results { get; set; }
+        public string ErrorMessage { get; set; }
+    }
+
+    private class RegenerateComponentRequest
+    {
+        public int DatabaseId { get; set; }
+        public int GridX { get; set; }
+        public int GridY { get; set; }
+        public int GridWidth { get; set; }
+        public int GridHeight { get; set; }
+        public string FailedTitle { get; set; }
+        public string FailedSql { get; set; }
+        public string ErrorMessage { get; set; }
+        public List<string> ExistingTitles { get; set; }
+        public int DataViewingTypeID { get; set; }
+        public string ChartType { get; set; }
+    }
+
+    private class AssistantSuggestionResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<ComponentSuggestion> Suggestions { get; set; }
+    }
+
+    private class ComponentSuggestion
+    {
+        public string Title { get; set; }
+        public string Description { get; set; }
+        public string SqlTemplate { get; set; }
+    }
+
+    private class CanvasBounds
+    {
+        public double Left { get; set; }
+        public double Top { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public double ScrollLeft { get; set; }
+        public double ScrollTop { get; set; }
+    }
+}
+
+<script suppress-error="BL9992">
+     window.registerKeyboardHandler = function(dotNetHelper) {
+        document.addEventListener('keydown', function(e) {
+            // Skip if typing in input or textarea
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                return;
+            }
+
+            // Arrow keys - Move/Resize
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                dotNetHelper.invokeMethodAsync('OnArrowKey', e.key, e.shiftKey, e.ctrlKey);
+                return;
+            }
+
+            // Tab - Cycle components
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                dotNetHelper.invokeMethodAsync('OnTabKey', e.shiftKey);
+                return;
+            }
+
+            // Escape - Deselect
+            if (e.key === 'Escape') {
+                dotNetHelper.invokeMethodAsync('OnEscapeKey');
+                return;
+            }
+
+            // Delete - Remove component
+            if (e.key === 'Delete' || (e.key === 'Backspace' && !e.target.isContentEditable)) {
+                e.preventDefault();
+                dotNetHelper.invokeMethodAsync('OnDeleteKey');
+                return;
+            }
+
+            // Ctrl+D - Duplicate
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+                e.preventDefault();
+                dotNetHelper.invokeMethodAsync('OnDuplicateKey');
+                return;
+            }
+
+            // Ctrl+S - Save
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                dotNetHelper.invokeMethodAsync('OnSaveKey');
+                return;
+            }
+        });
+
+        console.log('⌨️ Keyboard handler registered');
+    };
+
+    // ============================================
+    // ELEMENT BOUNDS HELPER
+    // ============================================
+    window.getElementBounds = function(element) {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            scrollLeft: element.scrollLeft || 0,
+            scrollTop: element.scrollTop || 0
+        };
+    };
+
+
+    window.getElementBounds = function(element) {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            scrollLeft: element.scrollLeft || 0,
+            scrollTop: element.scrollTop || 0
+        };
+    };
+
+    window.renderDynamicChart = function(componentId, chartType, data, title) {
+        const container = document.querySelector(`#chart-${componentId}`);
+        if (!container || !data || data.length === 0) {
+            console.log(`Chart ${componentId}: No container or data`);
+            return;
+        }
+
+        const columns = Object.keys(data[0]);
+        const xColumn = columns[0];
+        const yColumn = columns[1];
+        const categories = data.map(row => row[xColumn]);
+        const values = data.map(row => parseFloat(row[yColumn]) || 0);
+
+        let options;
+        const colors = ['#667EEA', '#48BB78', '#F6AD55', '#9F7AEA', '#FC8181', '#14B8A6', '#8B5CF6'];
+
+        switch(chartType.toLowerCase()) {
+            case 'pie':
+            case 'donut':
+                options = {
+                    series: values,
+                    chart: { id: `chart-${componentId}`, type: chartType, height: '100%' },
+                    labels: categories,
+                    colors: colors,
+                    legend: { show: true, position: 'bottom', fontSize: '14px' },
+                    dataLabels: { enabled: true, formatter: val => val.toFixed(1) + "%" },
+                    plotOptions: { pie: { donut: { size: chartType === 'donut' ? '65%' : '0%' } } }
+                };
+                break;
+            case 'line':
+            case 'area':
+                options = {
+                    series: [{ name: yColumn, data: values }],
+                    chart: { id: `chart-${componentId}`, type: chartType, height: '100%', toolbar: { show: true } },
+                    stroke: { curve: 'smooth', width: 3 },
+                    xaxis: { categories: categories },
+                    yaxis: { min: 0 },
+                    colors: ['#667EEA'],
+                    fill: { type: chartType === 'area' ? 'gradient' : 'solid', gradient: { opacityFrom: 0.5, opacityTo: 0.1 } },
+                    legend: { show: true, position: 'top' }
+                };
+                break;
+            default:
+                options = {
+                    series: [{ name: yColumn, data: values }],
+                    chart: { id: `chart-${componentId}`, type: 'bar', height: '100%', toolbar: { show: true } },
+                    plotOptions: { bar: { borderRadius: 6, columnWidth: '60%' } },
+                    dataLabels: { enabled: true, offsetY: -20, style: { fontSize: '12px', colors: ['#304758'] } },
+                    xaxis: { categories: categories },
+                    yaxis: { min: 0 },
+                    colors: ['#667EEA'],
+                    legend: { show: false }
+                };
+        }
+
+        const existingChart = ApexCharts.getChartByID(`chart-${componentId}`);
+        if (existingChart) existingChart.destroy();
+
+        const chart = new ApexCharts(container, options);
+        chart.render();
+    };
+</script>

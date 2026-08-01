@@ -1,0 +1,436 @@
+﻿using DynamicDashboardCommon.Enums;
+
+using DynamicDasboardWebAPI.Services;
+using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using DynamicDashboardCommon.Models;
+
+using System.IO;
+using DynamicDasboardWebAPI.Services.LLM;
+using DynamicDashboardCommon.Helper;
+
+namespace DynamicDasboardWebAPI.Controllers
+{
+    /// <summary>
+    /// API controller for dashboard operations.
+    /// </summary>
+    [ApiController]
+    [Route("api/[controller]")]
+    public class DashboardController : AppControllerBase
+    {
+        private readonly IDashboardService _dashboardService;
+        private readonly IDashboardGenerationService _dashboardGenerationService;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DashboardController"/> class.
+        /// </summary>
+        /// <param name="dashboardService">The dashboard service.</param>
+        /// <param name="logsService">The logs service.</param>
+        public DashboardController(
+            IDashboardService dashboardService,
+            IDashboardGenerationService dashboardGenerationService,
+            ILogsService logsService)
+            : base(logsService)
+        {
+            _dashboardService = dashboardService ?? throw new ArgumentNullException(nameof(dashboardService));
+            _dashboardGenerationService = dashboardGenerationService;
+        }
+
+
+
+        /// <summary>
+        /// Gets all dashboards with optional filtering.
+        /// </summary>
+        /// <param name="categoryId">Optional category ID filter.</param>
+        /// <param name="createdBy">Optional creator ID filter.</param>
+        /// <param name="sharingStatus">Optional sharing status filter (1=Private, 2=Shared, 3=Public).</param>
+        /// <returns>A collection of dashboards.</returns>
+        [HttpGet]
+        public async Task<IActionResult> GetAllDashboards(
+            [FromQuery] int? categoryId = null,
+            [FromQuery] int? createdBy = null,
+            [FromQuery] int? sharingStatus = null)
+        {
+            try
+            {
+                DashboardSharingStatus? sharingStatusEnum = null;
+                if (sharingStatus.HasValue && Enum.IsDefined(typeof(DashboardSharingStatus), sharingStatus.Value))
+                {
+                    sharingStatusEnum = (DashboardSharingStatus)sharingStatus.Value;
+                }
+
+                var dashboards = await _dashboardService.GetAllDashboardsAsync(categoryId, createdBy, sharingStatusEnum);
+                return Ok(dashboards);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Gets a dashboard by its ID.
+        /// </summary>
+        /// <param name="id">The dashboard ID.</param>
+        /// <returns>The dashboard.</returns>
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetDashboardById(int id)
+        {
+            try
+            {
+                var dashboard = await _dashboardService.GetDashboardByIdAsync(id);
+                if (dashboard == null)
+                {
+                    return NotFound($"Dashboard with ID {id} not found.");
+                }
+
+                return Ok(dashboard);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Generates SQL with explanation for custom chart request
+        /// </summary>
+        [HttpPost("generate-sql-with-explanation")]
+        public async Task<IActionResult> GenerateSqlWithExplanation([FromBody] CustomChartRequest request)
+        {
+            try
+            {
+                if (request.DatabaseId <= 0)
+                {
+                    return BadRequest(new { message = "Valid database ID is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Question))
+                {
+                    return BadRequest(new { message = "Question is required" });
+                }
+
+                // Get database schema
+                var schemaService = HttpContext.RequestServices.GetRequiredService<DatabaseSchemaService>();
+                var llmService = HttpContext.RequestServices.GetRequiredService<ILLMService>();
+
+                var database = await schemaService.GetSchemaObject(request.DatabaseId);
+                if (database == null)
+                {
+                    return BadRequest(new { message = "Database schema not found" });
+                }
+
+                string schemaText = schemaService.BuildOptimizedSchemaString(database);
+
+                // Generate SQL with explanation
+                var result = await llmService.GenerateSqlWithExplanationAsync(
+                    request.Question,
+                    schemaText,
+                    null);
+
+                // Extract title from question (first few words, capitalized)
+                var title = ExtractTitleFromQuestion(request.Question);
+
+                return Ok(new
+                {
+                    Success = true,
+                    GeneratedSql = result.SqlQuery,
+                    Title = title,
+                    //Explanation = result.Explanation,
+                    QueryIntent = request.Question
+                });
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+
+
+        /// <summary>
+        /// Creates a new dashboard.
+        /// </summary>
+        /// <param name="dashboard">The dashboard to create.</param>
+        /// <returns>The created dashboard.</returns>
+        [HttpPost]
+        public async Task<IActionResult> CreateDashboard([FromBody] DynamicDashboardCommon.Models.DashboardModel dashboard)
+        {
+            try
+            {
+                var dashboardId = await _dashboardService.CreateDashboardAsync(dashboard);
+                var createdDashboard = await _dashboardService.GetDashboardByIdAsync(dashboardId);
+                return CreatedAtAction(nameof(GetDashboardById), new { id = dashboardId }, createdDashboard);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Updates an existing dashboard.
+        /// </summary>
+        /// <param name="id">The ID of the dashboard to update.</param>
+        /// <param name="dashboard">The updated dashboard data.</param>
+        /// <returns>The updated dashboard.</returns>
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateDashboard(int id, [FromBody] DynamicDashboardCommon.Models.DashboardModel dashboard)
+        {
+            try
+            {
+                Console.WriteLine($"📥 Received update request for dashboard {id}");
+                Console.WriteLine($"📊 Dashboard Title: {dashboard.Title}");
+                Console.WriteLine($"📊 Components Count: {dashboard.Components?.Count ?? 0}");
+                Console.WriteLine($"📊 DatabaseID: {dashboard.DatabaseID}");
+                Console.WriteLine($"📊 CategoryID: {dashboard.CategoryID}");
+                if (id != dashboard.DashboardID)
+                {
+                    Console.WriteLine($"❌ ID mismatch: URL={id}, Body={dashboard.DashboardID}");
+                    return BadRequest("Dashboard ID mismatch.");
+                }
+                if (dashboard.DatabaseID <= 0)
+                {
+                    Console.WriteLine($"❌ Invalid DatabaseID: {dashboard.DatabaseID}");
+                    return BadRequest("DatabaseID is required");
+                }
+
+                var success = await _dashboardService.UpdateDashboardAsync(dashboard);
+                if (!success)
+                {
+
+                    Console.WriteLine($"❌ Update returned null for dashboard {id}");
+                    return NotFound($"Dashboard with ID {id} not found.");
+                }
+                Console.WriteLine($"✅ Dashboard {id} updated successfully");
+                var updatedDashboard = await _dashboardService.GetDashboardByIdAsync(id);
+                return Ok(updatedDashboard);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ EXCEPTION in UpdateDashboard:");
+                Console.WriteLine($"   Message: {ex.Message}");
+                Console.WriteLine($"   StackTrace: {ex.StackTrace}");
+
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"   Inner Exception: {ex.InnerException.Message}");
+                }
+
+                return StatusCode(500, new
+                {
+                    message = "An unexpected error occurred. Please try again later.",
+                    error = ex.Message,  // ⚠️ Remove this in production
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        /// <summary>
+        /// Suggests questions based on database schema
+        /// </summary>
+        [HttpGet("suggest-questions/{databaseId}")]
+        public async Task<IActionResult> SuggestQuestions(int databaseId)
+        {
+            try
+            {
+                var questions = await _dashboardGenerationService.GenerateSuggestedQuestionsAsync(databaseId);
+                return Ok(questions);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Deletes a dashboard.
+        /// </summary>
+        /// <param name="id">The ID of the dashboard to delete.</param>
+        /// <returns>Success indicator.</returns>
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteDashboard(int id)
+        {
+            try
+            {
+                var success = await _dashboardService.DeleteDashboardAsync(id);
+                if (!success)
+                {
+                    return NotFound($"Dashboard with ID {id} not found.");
+                }
+
+                return Ok(new { Success = true, Message = $"Dashboard with ID {id} deleted successfully." });
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Gets all dashboard categories.
+        /// </summary>
+        /// <param name="activeOnly">Whether to return only active categories (default: true).</param>
+        /// <returns>A collection of dashboard categories.</returns>
+        [HttpGet("categories")]
+        public async Task<IActionResult> GetDashboardCategories([FromQuery] bool activeOnly = true)
+        {
+            try
+            {
+                var categories = await _dashboardService.GetDashboardCategoriesAsync(activeOnly);
+                return Ok(categories);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Creates a new dashboard category.
+        /// </summary>
+        /// <param name="category">The category to create.</param>
+        /// <returns>The created category.</returns>
+        [HttpPost("categories")]
+        public async Task<IActionResult> CreateDashboardCategory([FromBody] DashboardCategory category)
+        {
+            try
+            {
+                var categoryId = await _dashboardService.CreateDashboardCategoryAsync(category);
+                var categories = await _dashboardService.GetDashboardCategoriesAsync();
+                var createdCategory = categories.FirstOrDefault(c => c.CategoryID == categoryId);
+
+                return CreatedAtAction(nameof(GetDashboardCategories), createdCategory);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Generates AI dashboard suggestions based on database schema.
+        /// </summary>
+        /// <param name="databaseId">The database ID to analyze.</param>
+        /// <returns>A list of suggested dashboards.</returns>
+        [HttpGet("suggestions/{databaseId}")]
+        public async Task<IActionResult> GenerateDashboardSuggestions(int databaseId)
+        {
+            try
+            {
+                var suggestions = await _dashboardService.GenerateDashboardSuggestionsAsync(databaseId);
+                return Ok(suggestions);
+            }
+            catch (Exception ex)
+            {
+                return await HandleExceptionAsync(ex, EnumLoggingType.Error.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Get all available dashboard templates
+        /// </summary>
+        [HttpGet("templates")]
+        public IActionResult GetTemplates()
+        {
+            try
+            {
+                var templatesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Templates", "dashboard-templates.json");
+                var templates = DashboardTemplateHelper.GetAllTemplates(templatesPath);
+                return Ok(templates);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error loading templates: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// Get a specific template by ID
+        /// </summary>
+        [HttpGet("templates/{templateId}")]
+        public IActionResult GetTemplate(string templateId)
+        {
+            try
+            {
+                var templatesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Templates", "dashboard-templates.json");
+                var template = DashboardTemplateHelper.GetTemplateById(templateId, templatesPath);
+
+                if (template == null)
+                {
+                    return NotFound(new { message = $"Template '{templateId}' not found" });
+                }
+
+                return Ok(template);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error loading template: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// Generate AI dashboard with specific template
+        /// </summary>
+        [HttpPost("generate-with-template")]
+        public async Task<IActionResult> GenerateDashboardWithTemplate([FromBody] GenerateWithTemplateRequest request)
+        {
+            try
+            {
+                if (request.DatabaseId <= 0)
+                {
+                    return BadRequest(new { message = "Valid database ID is required" });
+                }
+
+                if (string.IsNullOrEmpty(request.TemplateId))
+                {
+                    return BadRequest(new { message = "Template ID is required" });
+                }
+
+                var dashboards = await _dashboardGenerationService.GenerateDashboardSuggestionsAsync(
+                    request.DatabaseId,
+                    request.TemplateId);
+
+                return Ok(dashboards);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error generating dashboard: {ex.Message}" });
+            }
+        }
+
+        public class GenerateWithTemplateRequest
+        {
+            public int DatabaseId { get; set; }
+            public string TemplateId { get; set; }
+        }
+
+        /// <summary>
+        /// Extracts a title from a natural language question
+        /// </summary>
+        private string ExtractTitleFromQuestion(string question)
+        {
+            // Simple title extraction - take first 5-7 words and capitalize
+            var words = question.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Take(7)
+                .Select(w => char.ToUpper(w[0]) + w.Substring(1).ToLower());
+
+            var title = string.Join(" ", words);
+
+            // Remove trailing punctuation
+            title = title.TrimEnd('.', '?', '!');
+
+            // Limit length
+            if (title.Length > 50)
+            {
+                title = title.Substring(0, 47) + "...";
+            }
+
+            return title;
+        }
+
+
+    }
+}

@@ -1,0 +1,55 @@
+﻿@page "/comparisonautomation"
+@inject HttpClient Http
+@using DynamicDashboardCommon.Models;
+@inject IToastService toastService
+
+<!-- 
+    Page: Comparison Automation
+    Purpose: This page allows users to upload a JSON or CSV file, which is then processed to compare query results from different sources.
+    Functionalities:
+    - File upload with size validation (max 10 MB)
+    - Display loading status during file processing
+    - Show error messages if any issues occur
+    - Display comparison results in a table format
+-->
+
+<h3>Comparison Automation</h3>
+
+<!-- File input for uploading JSON or CSV files -->
+<InputFile OnChange="OnInputFileChange" accept=".json,.csv" />
+<!-- Button to trigger file upload and comparison -->
+<button @onclick="UploadFile" disabled="@isLoading">Upload and Compare</button>
+
+@if (isLoading)
+{
+    <p>Loading...</p>
+}
+
+@if (errorMessage != null)
+{
+    <p style="color: red;">@errorMessage</p>
+}
+
+@if (comparisons != null)
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Question</th>
+                <th>GPT vs DeepSeek-Chat</th>
+                <th>DeepSeek vs DeepSeek-Chat</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var comparison in comparisons)
+            {
+                <tr>
+                    <td>@comparison.NaturalLanguageQuestion</td>
+                    <td>@comparison.GptVsDeepSeekChatComparison</td>
+                    <td>@comparison.DeepSeekVsDeepSeekChatComparison</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+

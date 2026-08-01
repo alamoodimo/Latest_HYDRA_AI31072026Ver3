@@ -1,0 +1,879 @@
+```json
+{
+  "tableDescriptions": [
+    {
+      "tableName": "account_types",
+      "suggestedName": "Financial Account Types",
+      "suggestedDescription": "Categories of financial accounts that define their purpose and behavior in the accounting system"
+    },
+    {
+      "tableName": "accounts",
+      "suggestedName": "Financial Accounts",
+      "suggestedDescription": "Individual financial accounts used for tracking financial transactions in the accounting system"
+    },
+    {
+      "tableName": "articles",
+      "suggestedName": "Blog Articles",
+      "suggestedDescription": "Content pieces published on the website or blog"
+    },
+    {
+      "tableName": "audiotracks",
+      "suggestedName": "Meditation Audio Tracks",
+      "suggestedDescription": "Audio recordings used for guided meditation sessions"
+    },
+    {
+      "tableName": "bills_of_materials",
+      "suggestedName": "Product Recipes",
+      "suggestedDescription": "Master lists of components required to manufacture finished products"
+    },
+    {
+      "tableName": "bom_components",
+      "suggestedName": "Recipe Ingredients",
+      "suggestedDescription": "Individual components or materials that make up a finished product"
+    },
+    {
+      "tableName": "campaign_activities",
+      "suggestedName": "Marketing Activities",
+      "suggestedDescription": "Individual marketing actions and events that make up marketing campaigns"
+    },
+    {
+      "tableName": "campaign_targets",
+      "suggestedName": "Campaign Audience Groups",
+      "suggestedDescription": "Customer segments targeted by specific marketing campaigns"
+    },
+    {
+      "tableName": "categories",
+      "suggestedName": "Content Categories",
+      "suggestedDescription": "Classification groups for organizing blog articles and other content"
+    },
+    {
+      "tableName": "customer_addresses",
+      "suggestedName": "Customer Locations",
+      "suggestedDescription": "Physical addresses associated with customers for shipping and billing purposes"
+    },
+    {
+      "tableName": "customer_classification_assignments",
+      "suggestedName": "Customer Group Assignments",
+      "suggestedDescription": "Records of which customers belong to which classification groups"
+    },
+    {
+      "tableName": "customer_classifications",
+      "suggestedName": "Customer Groups",
+      "suggestedDescription": "Categories for grouping customers based on business relationships and purchasing patterns"
+    },
+    {
+      "tableName": "customer_communication_preferences",
+      "suggestedName": "Customer Contact Preferences",
+      "suggestedDescription": "Settings for how and when customers prefer to be contacted"
+    },
+    {
+      "tableName": "customer_contacts",
+      "suggestedName": "Customer Representatives",
+      "suggestedDescription": "Individual people who represent or work for a customer organization"
+    },
+    {
+      "tableName": "customers",
+      "suggestedName": "Customers",
+      "suggestedDescription": "Organizations or individuals who purchase products or services from the company"
+    },
+    {
+      "tableName": "delivery_routes",
+      "suggestedName": "Delivery Paths",
+      "suggestedDescription": "Planned travel paths for delivering products to multiple customer locations"
+    },
+    {
+      "tableName": "delivery_schedules",
+      "suggestedName": "Delivery Plans",
+      "suggestedDescription": "Specific planned execution of delivery routes on particular dates"
+    },
+    {
+      "tableName": "delivery_stop_events",
+      "suggestedName": "Delivery Stop Activities",
+      "suggestedDescription": "Events that occur at each stop during a delivery trip, such as package drop-offs"
+    },
+    {
+      "tableName": "departments",
+      "suggestedName": "Company Departments",
+      "suggestedDescription": "Organizational units within the company structure"
+    },
+    {
+      "tableName": "employee_attendance",
+      "suggestedName": "Staff Attendance Records",
+      "suggestedDescription": "Daily records of employee time-in and time-out of work"
+    },
+    {
+      "tableName": "employee_leaves",
+      "suggestedName": "Staff Time Off",
+      "suggestedDescription": "Records of employee vacation, sick days, and other approved absences"
+    },
+    {
+      "tableName": "employee_skills",
+      "suggestedName": "Staff Capabilities",
+      "suggestedDescription": "Skills, certifications, and expertise possessed by employees"
+    },
+    {
+      "tableName": "employees",
+      "suggestedName": "Staff Members",
+      "suggestedDescription": "People employed by the company"
+    },
+    {
+      "tableName": "events",
+      "suggestedName": "Public Events",
+      "suggestedDescription": "Organized gatherings, classes, or activities offered to customers"
+    },
+    {
+      "tableName": "feedback",
+      "suggestedName": "User Feedback",
+      "suggestedDescription": "Comments and ratings provided by users after meditation sessions"
+    },
+    {
+      "tableName": "fiscal_periods",
+      "suggestedName": "Accounting Periods",
+      "suggestedDescription": "Time divisions within fiscal years for financial reporting and accounting"
+    },
+    {
+      "tableName": "fiscal_years",
+      "suggestedName": "Financial Years",
+      "suggestedDescription": "Annual financial reporting periods for the organization"
+    },
+    {
+      "tableName": "instructors",
+      "suggestedName": "Meditation Teachers",
+      "suggestedDescription": "People who lead or create meditation sessions and content"
+    },
+    {
+      "tableName": "inventory",
+      "suggestedName": "Product Stock",
+      "suggestedDescription": "Current quantity of products available at each warehouse location"
+    },
+    {
+      "tableName": "inventory_transactions",
+      "suggestedName": "Inventory Changes",
+      "suggestedDescription": "Individual movements of products in and out of inventory"
+    },
+    {
+      "tableName": "invoice_lines",
+      "suggestedName": "Invoice Items",
+      "suggestedDescription": "Individual line items appearing on customer invoices"
+    },
+    {
+      "tableName": "invoices",
+      "suggestedName": "Customer Bills",
+      "suggestedDescription": "Financial documents requesting payment from customers for products or services"
+    },
+    {
+      "tableName": "job_positions",
+      "suggestedName": "Job Roles",
+      "suggestedDescription": "Defined organizational positions that can be filled by employees"
+    },
+    {
+      "tableName": "journal_entries",
+      "suggestedName": "Accounting Entries",
+      "suggestedDescription": "Financial transactions recorded in the accounting system"
+    },
+    {
+      "tableName": "journal_entry_lines",
+      "suggestedName": "Accounting Entry Details",
+      "suggestedDescription": "Individual debit and credit lines that make up accounting journal entries"
+    },
+    {
+      "tableName": "knowledge_base_articles",
+      "suggestedName": "Help Center Articles",
+      "suggestedDescription": "Informational articles providing answers to common questions and issues"
+    },
+    {
+      "tableName": "leave_types",
+      "suggestedName": "Time Off Categories",
+      "suggestedDescription": "Categories of employee leave such as vacation, sick leave, or personal time"
+    },
+    {
+      "tableName": "maintenance_records",
+      "suggestedName": "Vehicle Service Records",
+      "suggestedDescription": "History of maintenance and repairs performed on delivery vehicles"
+    },
+    {
+      "tableName": "marketing_campaigns",
+      "suggestedName": "Marketing Programs",
+      "suggestedDescription": "Organized marketing initiatives with specific goals and timeframes"
+    },
+    {
+      "tableName": "marketing_messages",
+      "suggestedName": "Marketing Communications",
+      "suggestedDescription": "Individual emails, texts, or other messages sent to customers for marketing purposes"
+    },
+    {
+      "tableName": "marketing_segments",
+      "suggestedName": "Customer Audiences",
+      "suggestedDescription": "Groups of customers sharing similar characteristics for targeted marketing"
+    },
+    {
+      "tableName": "meditationsessions",
+      "suggestedName": "Meditation Practice Records",
+      "suggestedDescription": "Records of individual meditation sessions completed by users"
+    },
+    {
+      "tableName": "meditationtypes",
+      "suggestedName": "Meditation Styles",
+      "suggestedDescription": "Different forms and approaches to meditation offered in the application"
+    },
+    {
+      "tableName": "message_deliveries",
+      "suggestedName": "Message Delivery Status",
+      "suggestedDescription": "Tracking information about marketing message delivery to individual customers"
+    },
+    {
+      "tableName": "order_items",
+      "suggestedName": "Order Items",
+      "suggestedDescription": "Individual products included in customer orders"
+    },
+    {
+      "tableName": "order_statuses",
+      "suggestedName": "Order Status Options",
+      "suggestedDescription": "Possible states an order can be in during its lifecycle"
+    },
+    {
+      "tableName": "orders",
+      "suggestedName": "Customer Orders",
+      "suggestedDescription": "Requests from customers to purchase products or services"
+    },
+    {
+      "tableName": "payment_applications",
+      "suggestedName": "Payment Allocations",
+      "suggestedDescription": "Records of how customer payments are applied to specific invoices"
+    },
+    {
+      "tableName": "payments",
+      "suggestedName": "Customer Payments",
+      "suggestedDescription": "Money received from customers to pay for invoices"
+    },
+    {
+      "tableName": "performance_reviews",
+      "suggestedName": "Staff Evaluations",
+      "suggestedDescription": "Periodic assessments of employee performance"
+    },
+    {
+      "tableName": "product_categories",
+      "suggestedName": "Product Groups",
+      "suggestedDescription": "Classification system for organizing products"
+    },
+    {
+      "tableName": "product_suppliers",
+      "suggestedName": "Vendor Products",
+      "suggestedDescription": "Information about products as supplied by specific vendors"
+    },
+    {
+      "tableName": "production_order_components",
+      "suggestedName": "Production Materials",
+      "suggestedDescription": "Materials required for specific production orders"
+    },
+    {
+      "tableName": "production_order_operations",
+      "suggestedName": "Production Steps",
+      "suggestedDescription": "Individual manufacturing operations required to complete a production order"
+    },
+    {
+      "tableName": "production_orders",
+      "suggestedName": "Manufacturing Orders",
+      "suggestedDescription": "Instructions to produce a specific quantity of a product"
+    },
+    {
+      "tableName": "products",
+      "suggestedName": "Products",
+      "suggestedDescription": "Goods available for sale to customers"
+    },
+    {
+      "tableName": "project_milestones",
+      "suggestedName": "Project Checkpoints",
+      "suggestedDescription": "Major progress points within projects"
+    },
+    {
+      "tableName": "project_tasks",
+      "suggestedName": "Project Activities",
+      "suggestedDescription": "Individual work items to be completed as part of projects"
+    },
+    {
+      "tableName": "project_teams",
+      "suggestedName": "Project Staff Assignments",
+      "suggestedDescription": "Employees assigned to work on specific projects"
+    },
+    {
+      "tableName": "projects",
+      "suggestedName": "Client Projects",
+      "suggestedDescription": "Major bodies of work performed for specific clients or internal purposes"
+    },
+    {
+      "tableName": "return_items",
+      "suggestedName": "Returned Items",
+      "suggestedDescription": "Individual products returned by customers"
+    },
+    {
+      "tableName": "returns",
+      "suggestedName": "Product Returns",
+      "suggestedDescription": "Customer returns of previously purchased products"
+    },
+    {
+      "tableName": "route_stops",
+      "suggestedName": "Delivery Stops",
+      "suggestedDescription": "Individual locations to visit on a delivery route"
+    },
+    {
+      "tableName": "routing_operations",
+      "suggestedName": "Manufacturing Steps",
+      "suggestedDescription": "Standardized production operations used in manufacturing processes"
+    },
+    {
+      "tableName": "routings",
+      "suggestedName": "Production Processes",
+      "suggestedDescription": "Standardized sequences of operations for manufacturing products"
+    },
+    {
+      "tableName": "segment_customers",
+      "suggestedName": "Audience Members",
+      "suggestedDescription": "Individual customers assigned to marketing segments"
+    },
+    {
+      "tableName": "sessioninstructors",
+      "suggestedName": "Session Teachers",
+      "suggestedDescription": "Records connecting meditation teachers to specific meditation sessions"
+    },
+    {
+      "tableName": "shipment_items",
+      "suggestedName": "Shipped Items",
+      "suggestedDescription": "Individual products included in shipments to customers"
+    },
+    {
+      "tableName": "shipments",
+      "suggestedName": "Product Shipments",
+      "suggestedDescription": "Groups of products sent to customers in a single package or delivery"
+    },
+    {
+      "tableName": "suppliers",
+      "suggestedName": "Vendors",
+      "suggestedDescription": "Companies that supply products or materials to the organization"
+    },
+    {
+      "tableName": "support_categories",
+      "suggestedName": "Support Topics",
+      "suggestedDescription": "Categories for organizing support tickets by subject matter"
+    },
+    {
+      "tableName": "support_teams",
+      "suggestedName": "Support Groups",
+      "suggestedDescription": "Teams of employees that handle customer support issues"
+    },
+    {
+      "tableName": "support_tickets",
+      "suggestedName": "Support Requests",
+      "suggestedDescription": "Questions or issues submitted by customers for resolution"
+    },
+    {
+      "tableName": "team_members",
+      "suggestedName": "Support Team Members",
+      "suggestedDescription": "Employees assigned to work in specific support teams"
+    },
+    {
+      "tableName": "ticket_article_references",
+      "suggestedName": "Ticket Knowledge Links",
+      "suggestedDescription": "Connections between support tickets and relevant knowledge base articles"
+    },
+    {
+      "tableName": "ticket_attachments",
+      "suggestedName": "Ticket Files",
+      "suggestedDescription": "Files attached to support tickets"
+    },
+    {
+      "tableName": "ticket_comments",
+      "suggestedName": "Ticket Responses",
+      "suggestedDescription": "Comments added to support tickets by staff or customers"
+    },
+    {
+      "tableName": "ticket_history",
+      "suggestedName": "Ticket Changes",
+      "suggestedDescription": "Record of changes made to support tickets over time"
+    },
+    {
+      "tableName": "time_entries",
+      "suggestedName": "Work Hours",
+      "suggestedDescription": "Records of time worked by employees on projects and tasks"
+    },
+    {
+      "tableName": "users",
+      "suggestedName": "Application Users",
+      "suggestedDescription": "People who use the meditation application"
+    },
+    {
+      "tableName": "vehicles",
+      "suggestedName": "Delivery Vehicles",
+      "suggestedDescription": "Trucks, vans, and other vehicles used for product delivery"
+    },
+    {
+      "tableName": "warehouses",
+      "suggestedName": "Storage Locations",
+      "suggestedDescription": "Facilities where inventory is stored before shipment"
+    },
+    {
+      "tableName": "work_centers",
+      "suggestedName": "Production Stations",
+      "suggestedDescription": "Physical locations where specific manufacturing operations are performed"
+    }
+  ],
+  "columnDescriptions": [
+    {
+      "tableName": "account_types",
+      "columnName": "account_type_id",
+      "suggestedName": "Account Type ID",
+      "suggestedDescription": "Unique identifier for each type of financial account",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "account_types",
+      "columnName": "type_name",
+      "suggestedName": "Account Type",
+      "suggestedDescription": "Name of the account type (e.g., Asset, Liability, Revenue)",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "account_types",
+      "columnName": "description",
+      "suggestedName": "Description",
+      "suggestedDescription": "Detailed explanation of the account type and its purpose",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "account_types",
+      "columnName": "normal_balance",
+      "suggestedName": "Normal Balance Side",
+      "suggestedDescription": "Whether accounts of this type normally have debit or credit balances",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "account_types",
+      "columnName": "created_at",
+      "suggestedName": "Creation Date",
+      "suggestedDescription": "Date and time when this account type was created in the system",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "account_types",
+      "columnName": "last_updated",
+      "suggestedName": "Last Modified Date",
+      "suggestedDescription": "Date and time when this account type was last modified",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "account_types",
+      "columnName": "financial_statement",
+      "suggestedName": "Financial Statement",
+      "suggestedDescription": "Which financial statement this account type appears on (e.g., Balance Sheet, Income Statement)",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "account_id",
+      "suggestedName": "Account ID",
+      "suggestedDescription": "Unique identifier for each financial account",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "account_code",
+      "suggestedName": "Account Number",
+      "suggestedDescription": "Code or number used to identify the account in the chart of accounts",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "account_name",
+      "suggestedName": "Account Name",
+      "suggestedDescription": "Descriptive name of the financial account",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "account_type_id",
+      "suggestedName": "Account Type",
+      "suggestedDescription": "Type of financial account (reference to account types)",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "parent_account_id",
+      "suggestedName": "Parent Account",
+      "suggestedDescription": "The account that this account rolls up to in a hierarchical chart of accounts",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "description",
+      "suggestedName": "Description",
+      "suggestedDescription": "Detailed explanation of the account's purpose",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "is_active",
+      "suggestedName": "Active Status",
+      "suggestedDescription": "Indicates whether the account is currently active for use (1) or inactive (0)",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "created_at",
+      "suggestedName": "Creation Date",
+      "suggestedDescription": "Date and time when this account was created in the system",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "last_updated",
+      "suggestedName": "Last Modified Date",
+      "suggestedDescription": "Date and time when this account was last modified",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "accounts",
+      "columnName": "tax_relevant",
+      "suggestedName": "Tax Relevant",
+      "suggestedDescription": "Indicates whether this account has tax implications (1) or not (0)",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "session_id",
+      "suggestedName": "Session ID",
+      "suggestedDescription": "Unique identifier for each meditation session",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "user_id",
+      "suggestedName": "User",
+      "suggestedDescription": "The user who performed the meditation session",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "type_id",
+      "suggestedName": "Meditation Style",
+      "suggestedDescription": "The type or style of meditation practiced in this session",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "start_time",
+      "suggestedName": "Start Time",
+      "suggestedDescription": "Date and time when the meditation session began",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "duration_minutes",
+      "suggestedName": "Duration (minutes)",
+      "suggestedDescription": "Length of the meditation session in minutes",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "mood_before",
+      "suggestedName": "Mood Before",
+      "suggestedDescription": "User's self-reported mood state before starting the meditation",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationsessions",
+      "columnName": "mood_after",
+      "suggestedName": "Mood After",
+      "suggestedDescription": "User's self-reported mood state after completing the meditation",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationtypes",
+      "columnName": "type_id",
+      "suggestedName": "Style ID",
+      "suggestedDescription": "Unique identifier for each meditation style",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationtypes",
+      "columnName": "name",
+      "suggestedName": "Meditation Name",
+      "suggestedDescription": "Name of the meditation style or technique",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "meditationtypes",
+      "columnName": "description",
+      "suggestedName": "Description",
+      "suggestedDescription": "Detailed explanation of the meditation style and its benefits",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "users",
+      "columnName": "user_id",
+      "suggestedName": "User ID",
+      "suggestedDescription": "Unique identifier for each application user",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "users",
+      "columnName": "username",
+      "suggestedName": "Username",
+      "suggestedDescription": "Name used by the user to log in to the application",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "users",
+      "columnName": "email",
+      "suggestedName": "Email Address",
+      "suggestedDescription": "User's email address for communication and account recovery",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "users",
+      "columnName": "created_at",
+      "suggestedName": "Account Creation Date",
+      "suggestedDescription": "Date and time when the user account was created",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "instructors",
+      "columnName": "instructor_id",
+      "suggestedName": "Teacher ID",
+      "suggestedDescription": "Unique identifier for each meditation teacher",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "instructors",
+      "columnName": "name",
+      "suggestedName": "Teacher Name",
+      "suggestedDescription": "Full name of the meditation teacher",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "instructors",
+      "columnName": "bio",
+      "suggestedName": "Biography",
+      "suggestedDescription": "Background information and qualifications of the teacher",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "instructors",
+      "columnName": "email",
+      "suggestedName": "Email Address",
+      "suggestedDescription": "Teacher's email address for contact purposes",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "audiotracks",
+      "columnName": "track_id",
+      "suggestedName": "Track ID",
+      "suggestedDescription": "Unique identifier for each meditation audio recording",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "audiotracks",
+      "columnName": "title",
+      "suggestedName": "Track Title",
+      "suggestedDescription": "Name of the meditation audio recording",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "audiotracks",
+      "columnName": "url",
+      "suggestedName": "Audio File Link",
+      "suggestedDescription": "Web address where the audio recording can be accessed",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "audiotracks",
+      "columnName": "duration_seconds",
+      "suggestedName": "Duration (seconds)",
+      "suggestedDescription": "Length of the audio recording in seconds",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "audiotracks",
+      "columnName": "type_id",
+      "suggestedName": "Meditation Style",
+      "suggestedDescription": "Type of meditation this audio track is designed for",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "feedback",
+      "columnName": "feedback_id",
+      "suggestedName": "Feedback ID",
+      "suggestedDescription": "Unique identifier for each feedback submission",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "feedback",
+      "columnName": "session_id",
+      "suggestedName": "Meditation Session",
+      "suggestedDescription": "The meditation session this feedback refers to",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "feedback",
+      "columnName": "user_id",
+      "suggestedName": "User",
+      "suggestedDescription": "The user who provided this feedback",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "feedback",
+      "columnName": "rating",
+      "suggestedName": "Star Rating",
+      "suggestedDescription": "Numerical rating given by the user (typically 1-5 stars)",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "feedback",
+      "columnName": "comment",
+      "suggestedName": "Comment",
+      "suggestedDescription": "Written feedback provided by the user about their meditation experience",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "feedback",
+      "columnName": "submitted_at",
+      "suggestedName": "Submission Time",
+      "suggestedDescription": "Date and time when the feedback was submitted",
+      "isLookupColumn": false
+    },
+    {
+      "tableName": "sessioninstructors",
+      "columnName": "session_id",
+      "suggestedName": "Meditation Session",
+      "suggestedDescription": "The meditation session being taught",
+      "isLookupColumn": true
+    },
+    {
+      "tableName": "sessioninstructors",
+      "columnName": "instructor_id",
+      "suggestedName": "Teacher",
+      "suggestedDescription": "The meditation teacher leading this session",
+      "isLookupColumn": true
+    }
+  ],
+  "potentialConflicts": [
+    {
+      "type": "Table",
+      "conflictDescription": "Multiple tables related to 'articles' that might cause confusion",
+      "items": [
+        {
+          "name": "articles",
+          "suggestedResolution": "Rename to 'Blog Articles' to distinguish from knowledge base articles"
+        },
+        {
+          "name": "knowledge_base_articles",
+          "suggestedResolution": "Keep as 'Help Center Articles' to clearly indicate support function"
+        }
+      ]
+    },
+    {
+      "type": "Table",
+      "conflictDescription": "Multiple types of 'categories' tables that serve different purposes",
+      "items": [
+        {
+          "name": "categories",
+          "suggestedResolution": "Rename to 'Content Categories' to clarify it's for blog articles"
+        },
+        {
+          "name": "product_categories",
+          "suggestedResolution": "Keep as 'Product Groups' to indicate product classification"
+        },
+        {
+          "name": "support_categories",
+          "suggestedResolution": "Keep as 'Support Topics' to indicate support ticket classification"
+        }
+      ]
+    },
+    {
+      "type": "Table",
+      "conflictDescription": "Multiple team-related tables with potentially confusing purposes",
+      "items": [
+        {
+          "name": "team_members",
+          "suggestedResolution": "Rename to 'Support Team Members' to clarify this is for support teams"
+        },
+        {
+          "name": "project_teams",
+          "suggestedResolution": "Keep as 'Project Staff Assignments' to indicate project context"
+        },
+        {
+          "name": "support_teams",
+          "suggestedResolution": "Keep as 'Support Groups' to indicate customer support function"
+        }
+      ]
+    },
+    {
+      "type": "Column",
+      "conflictDescription": "Columns named 'status' appear in many tables with different meanings",
+      "items": [
+        {
+          "name": "status",
+          "tableName": "bills_of_materials",
+          "suggestedResolution": "Rename to 'Recipe Status' to clarify context"
+        },
+        {
+          "name": "status",
+          "tableName": "campaign_activities",
+          "suggestedResolution": "Rename to 'Activity Status' to clarify context"
+        },
+        {
+          "name": "status",
+          "tableName": "orders",
+          "suggestedResolution": "Rename to 'Order Status' to clarify context"
+        },
+        {
+          "name": "status",
+          "tableName": "shipments",
+          "suggestedResolution": "Rename to 'Shipment Status' to clarify context"
+        },
+        {
+          "name": "status",
+          "tableName": "support_tickets",
+          "suggestedResolution": "Rename to 'Ticket Status' to clarify context"
+        }
+      ]
+    },
+    {
+      "type": "Column",
+      "conflictDescription": "Multiple types of 'description' columns across different tables",
+      "items": [
+        {
+          "name": "description",
+          "tableName": "accounts",
+          "suggestedResolution": "Rename to 'Account Description' for clarity"
+        },
+        {
+          "name": "description",
+          "tableName": "products",
+          "suggestedResolution": "Rename to 'Product Description' for clarity"
+        },
+        {
+          "name": "description",
+          "tableName": "meditationtypes",
+          "suggestedResolution": "Rename to 'Meditation Style Description' for clarity"
+        }
+      ]
+    },
+    {
+      "type": "Column",
+      "conflictDescription": "The column 'type_id' is used in different contexts",
+      "items": [
+        {
+          "name": "type_id",
+          "tableName": "audiotracks",
+          "suggestedResolution": "Rename to 'Meditation Style ID' to clarify meaning"
+        },
+        {
+          "name": "type_id",
+          "tableName": "meditationsessions",
+          "suggestedResolution": "Rename to 'Meditation Style ID' to maintain consistency"
+        }
+      ]
+    }
+  ]
+}
+```
