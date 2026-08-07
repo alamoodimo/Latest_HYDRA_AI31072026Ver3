@@ -63,7 +63,7 @@ namespace DynamicDashboardFE.Pages.User
 
         // Database connection for both modes
         //temp
-        private string dbServer = "(LocalDB)\\MSSQLLocalDB";
+        private string dbServer = "(LocalDB)\\LocalDB2019";
         private string dbName = "ECommerceDB";
         private string FriendlyName = "ECommerce DataBase";
         private string dbAuthType = "windows";
