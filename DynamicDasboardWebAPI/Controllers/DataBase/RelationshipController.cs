@@ -1,9 +1,10 @@
-﻿using DynamicDashboardCommon.Models;
-using DynamicDasboardWebAPI.Services;
+﻿using DynamicDasboardWebAPI.Services;
+using DynamicDashboardCommon.Enums;
+using DynamicDashboardCommon.Models;
 using Microsoft.AspNetCore.Mvc;
+using MySqlX.XDevAPI.Relational;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using DynamicDashboardCommon.Enums;
 
 namespace DynamicDasboardWebAPI.Controllers
 {
@@ -15,6 +16,7 @@ namespace DynamicDasboardWebAPI.Controllers
     public class RelationshipsController : AppControllerBase
     {
         private readonly RelationshipService _service;
+        private readonly ILogsService _logsService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RelationshipsController"/> class.
@@ -25,6 +27,7 @@ namespace DynamicDasboardWebAPI.Controllers
         : base(logsService)
         {
             _service = service;
+            logsService=_logsService;
         }
 
         /// <summary>
@@ -37,6 +40,10 @@ namespace DynamicDasboardWebAPI.Controllers
         {
             try
             {
+                await _logsService
+         .AddLogAsync(GetUserId(),
+         "Run GetRelationshipsByTableId",
+         $"The GetRelationshipsByTableId has been started for Table Id: {tableId}");
                 var relationships = await _service.GetRelationshipsByTableIdAsync(tableId);
                 return Ok(relationships);
             }
@@ -55,6 +62,11 @@ namespace DynamicDasboardWebAPI.Controllers
         [HttpPost]
         public async Task<ActionResult<int>> AddRelationship([FromBody] Relationship relationship)
         {
+            await _logsService
+.AddLogAsync(GetUserId(),
+"Run AddRelationship",
+$"The AddRelationship has been started for Table Id: {relationship.TableID} " +
+$"and Relationship Id :{relationship.RelationshipID}");
             var result = await _service.AddRelationshipAsync(relationship);
             return Ok(result);
         }
@@ -68,6 +80,12 @@ namespace DynamicDasboardWebAPI.Controllers
         [HttpPut("{relationshipId}")]
         public async Task<ActionResult<int>> UpdateRelationship(int relationshipId, [FromBody] Relationship relationship)
         {
+
+            await _logsService
+.AddLogAsync(GetUserId(),
+"Run UpdateRelationship",
+$"The UpdateRelationship has been started for Table Id: {relationship.TableID} " +
+$"and Relationship Id :{relationship.RelationshipID}");
             if (relationshipId != relationship.RelationshipID)
                 return BadRequest("Relationship ID mismatch.");
 
@@ -83,6 +101,10 @@ namespace DynamicDasboardWebAPI.Controllers
         [HttpDelete("{relationshipId}")]
         public async Task<ActionResult<int>> DeleteRelationship(int relationshipId)
         {
+            await _logsService
+.AddLogAsync(GetUserId(),
+"Run DeleteRelationship",
+$"The DeleteRelationship has been started for  Relationship Id :{relationshipId}");
             var result = await _service.DeleteRelationshipAsync(relationshipId);
             return Ok(result);
         }

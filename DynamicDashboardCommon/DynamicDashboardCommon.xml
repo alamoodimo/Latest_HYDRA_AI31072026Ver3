@@ -2442,6 +2442,14 @@
             Gets or sets the description provided by the admin for the table.
             </summary>
         </member>
+        <member name="T:DynamicDashboardCommon.Models.DTOs.LLM.LlmTableDescriptionDto">
+            <summary>
+            Raw "table" entry exactly as emitted by the LLM schema-analysis JSON.
+            Deliberately separate from the domain <see cref="T:DynamicDashboardCommon.Models.TableDescription"/> so the
+            LLM's key names (friendlyName/description) never leak into the API/Blazor
+            contract. Mapped into TableDescription in SchemaAnalysisService.
+            </summary>
+        </member>
         <member name="T:DynamicDashboardCommon.Models.EmailSettings">
             <summary>
             Email service configuration settings.

@@ -24,7 +24,8 @@ namespace DynamicDasboardWebAPI.Controllers
         }
 
         [HttpPost("process")]
-        public async Task<IActionResult> ProcessExcelFile([FromForm] IFormFile file, [FromForm] string dbType)
+      //  public async Task<IActionResult> ProcessExcelFile([FromForm] IFormFile file, [FromForm] string dbType)
+        public async Task<IActionResult> ProcessExcelFile(IFormFile file, [FromForm] string dbType)
         {
             if (file == null || file.Length == 0)
             {

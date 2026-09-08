@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DynamicDashboardCommon.Models.DTOs.LLM;
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -257,10 +258,18 @@ namespace DynamicDashboardCommon.Models
     /// <summary>
     /// DTO for parsing complete LLM analysis response
     /// </summary>
+    //public class LlmSchemaAnalysisResponse
+    //{
+    //    public List<TableDescription> TableDescriptions { get; set; }
+    //    public List<ColumnDescription> ColumnDescriptions { get; set; }
+    //    public List<PotentialConflict> PotentialConflicts { get; set; }
+    //    public List<LlmSuggestedRelationship> SuggestedRelationships { get; set; }
+    //    public List<UnclearElement> UnclearElements { get; set; }
+    //}
     public class LlmSchemaAnalysisResponse
     {
-        public List<TableDescription> TableDescriptions { get; set; }
-        public List<ColumnDescription> ColumnDescriptions { get; set; }
+        public List<LlmTableDescriptionDto> TableDescriptions { get; set; }
+        public List<LlmColumnDescriptionDto> ColumnDescriptions { get; set; }
         public List<PotentialConflict> PotentialConflicts { get; set; }
         public List<LlmSuggestedRelationship> SuggestedRelationships { get; set; }
         public List<UnclearElement> UnclearElements { get; set; }

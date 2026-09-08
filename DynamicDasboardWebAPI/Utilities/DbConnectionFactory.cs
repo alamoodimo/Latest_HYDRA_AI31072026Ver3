@@ -795,6 +795,7 @@ namespace DynamicDasboardWebAPI.Utilities
         /// <summary>
         /// Builds Oracle connection string
         /// </summary>
+        /// 
         private string BuildOracleConnectionString(Database database)
         {
             var builder = new OracleConnectionStringBuilder
@@ -805,6 +806,67 @@ namespace DynamicDasboardWebAPI.Utilities
                 MaxPoolSize = 100
             };
 
+            #region Claude Modification - dynamic TCP/TCPS via SslMode + TNS descriptor
+            // SslMode acts as the per-connection flag (stored on the Databases row):
+            // empty or "none" => plain TCP; any other value => TCPS (TLS).
+            bool useTls = !string.IsNullOrEmpty(database.SslMode)
+                          && !database.SslMode.Equals("none", StringComparison.OrdinalIgnoreCase);
+            string protocol = useTls ? "TCPS" : "TCP";
+
+            // Default to Oracle's standard port 1521 when none is supplied.
+            int port = database.Port > 0 ? database.Port : 1521;
+
+            // Full TNS descriptor (dynamic protocol/host/port/service).
+            builder.DataSource =
+                $"(DESCRIPTION=(ADDRESS=(PROTOCOL={protocol})(HOST={database.ServerAddress})(PORT={port}))" +
+                $"(CONNECT_DATA=(SERVICE_NAME={database.Name})))";
+            #endregion
+
+            string decryptedPassword = DecryptCredentials(database.EncryptedCredentials);
+
+            if (!string.IsNullOrEmpty(database.Username))
+            {
+                builder.UserID = database.Username;
+                builder.Password = decryptedPassword;
+            }
+
+            return builder.ConnectionString;
+        }
+        private string BuildOracleConnectionStringOldAmodi(Database database)
+        {
+            var builder = new OracleConnectionStringBuilder
+            {
+                ConnectionTimeout = 30,
+                Pooling = true,
+                MinPoolSize = 5,
+                MaxPoolSize = 100
+            };
+
+            #region Claude Modification
+            // SslMode acts as the per-connection flag (stored on the Databases row):
+            // empty or "none" => plain TCP; any other value => TCPS (TLS).
+            bool useTls = !string.IsNullOrEmpty(database.SslMode)
+                          && !database.SslMode.Equals("none", StringComparison.OrdinalIgnoreCase);
+            string protocol = useTls ? "TCPS" : "TCP";
+
+            // Default to Oracle's standard port 1521 when none is supplied.
+            int port = database.Port > 0 ? database.Port : 1521;
+
+            // Full TNS descriptor (dynamic protocol/host/port/service).
+            builder.DataSource =
+                $"(DESCRIPTION=(ADDRESS=(PROTOCOL={protocol})(HOST={database.ServerAddress})(PORT={port}))" +
+                $"(CONNECT_DATA=(SERVICE_NAME={database.Name})))";
+
+            string decryptedPassword = DecryptCredentials(database.EncryptedCredentials);
+
+            if (!string.IsNullOrEmpty(database.Username))
+            {
+                builder.UserID = database.Username;
+                builder.Password = decryptedPassword;
+            }
+
+           // return builder.ConnectionString;
+            #endregion
             // Oracle DataSource: Easy Connect format (host:port/service_name)
             if (database.Port > 0)
             {
@@ -816,7 +878,7 @@ namespace DynamicDasboardWebAPI.Utilities
                 builder.DataSource = $"{database.ServerAddress}:1521/{database.Name}";
             }
 
-            string decryptedPassword = DecryptCredentials(database.EncryptedCredentials);
+         //   string decryptedPassword = DecryptCredentials(database.EncryptedCredentials);
 
             if (!string.IsNullOrEmpty(database.Username))
             {

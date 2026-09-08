@@ -2298,7 +2298,7 @@
             </summary>
         </member>
         <member name="T:DynamicDasboardWebAPI.Services.SchemaAnalysisService">
-            <summary>
+            <summary>   
             Service for analyzing database schemas using LLM.
             Provides sequential analysis of tables, columns, and relationships.
             </summary>
@@ -2471,6 +2471,22 @@
         <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.AnalyzeSchemaWithLLMAsync(System.String,System.String)">
             <summary>
             Analyzes schema with LLM (full analysis)
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.MapLlmTableDescriptions(System.Collections.Generic.List{DynamicDashboardCommon.Models.DTOs.LLM.LlmTableDescriptionDto})">
+            <summary>
+            Maps raw LLM table DTOs into domain TableDescription objects,
+            translating the LLM's friendlyName/description keys into the
+            domain's SuggestedName/SuggestedDescription properties.
+            Null-safe: a null source yields an empty list; null entries are skipped.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.MapLlmColumnDescriptions(System.Collections.Generic.List{DynamicDashboardCommon.Models.DTOs.LLM.LlmColumnDescriptionDto})">
+            <summary>
+            Maps raw LLM column DTOs into domain ColumnDescription objects,
+            translating the LLM's friendlyName/description keys into the
+            domain's SuggestedName/SuggestedDescription properties.
+            Null-safe: a null source yields an empty list; null entries are skipped.
             </summary>
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.MapLlmRelationships(System.Collections.Generic.List{DynamicDashboardCommon.Models.LlmSuggestedRelationship})">
@@ -3932,6 +3948,7 @@
             <summary>
             Builds Oracle connection string
             </summary>
+            
         </member>
         <member name="M:DynamicDasboardWebAPI.Utilities.DbConnectionFactory.DecryptCredentials(System.String)">
             <summary>

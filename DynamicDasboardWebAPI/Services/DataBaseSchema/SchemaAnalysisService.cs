@@ -1,5 +1,6 @@
 ﻿using DynamicDasboardWebAPI.Services.LLM;
 using DynamicDashboardCommon.Models;
+using DynamicDashboardCommon.Models.DTOs.LLM;
 using DynamicDashboardCommon.Models.SchemaAnalysis;
 using Microsoft.Extensions.Logging;
 using System;
@@ -12,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace DynamicDasboardWebAPI.Services
 {
-    /// <summary>
+    /// <summary>   
     /// Service for analyzing database schemas using LLM.
     /// Provides sequential analysis of tables, columns, and relationships.
     /// </summary>
@@ -64,6 +65,7 @@ namespace DynamicDasboardWebAPI.Services
                 }
 
                 var schemaForAnalysis = _schemaService.BuildOptimizedSchemaString(schemaObj);
+
                 var analysisResult = await AnalyzeSchemaWithLLMAsync(schemaForAnalysis, database.Name);
 
                 return analysisResult;
@@ -1520,6 +1522,8 @@ namespace DynamicDasboardWebAPI.Services
             try
             {
                 var prompt = BuildFullSchemaAnalysisPrompt(schema, databaseName);
+
+                //the line below is the issues with naming matching between JsonResponse and model 
                 var response = await _llmService.GenerateSchemaAnalysisAsync(prompt);
 
                 return ParseSchemaAnalysisResponse(response);
@@ -1530,8 +1534,27 @@ namespace DynamicDasboardWebAPI.Services
                 return CreateErrorResult($"Error in LLM analysis: {ex.Message}");
             }
         }
-
         private string BuildFullSchemaAnalysisPrompt(string schema, string databaseName)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"You are an expert database analyst helping improve the usability of database '{databaseName}'.");
+            sb.AppendLine("\nProvide:");
+            sb.AppendLine("1. User-friendly names and descriptions for each table and column (max 5 words description)");
+            sb.AppendLine("2. Analyze ALL tables and ALL columns");
+            sb.AppendLine("\nSchema:");
+            sb.AppendLine(schema);
+            sb.AppendLine("\nRespond with JSON using these exact keys:");
+            sb.AppendLine("- table objects: \"tableName\", \"friendlyName\", \"description\"");
+            sb.AppendLine("- column objects: \"tableName\", \"columnName\", \"friendlyName\", \"description\", \"isLookupColumn\"");
+            sb.AppendLine("{");
+            sb.AppendLine("  \"tableDescriptions\": [...],");
+            sb.AppendLine("  \"columnDescriptions\": [...]");
+            sb.AppendLine("}");
+            return sb.ToString();
+
+            return sb.ToString();
+        }
+        private string BuildFullSchemaAnalysisPromptold(string schema, string databaseName)
         {
             var sb = new StringBuilder();
 
@@ -1551,7 +1574,71 @@ namespace DynamicDasboardWebAPI.Services
 
             return sb.ToString();
         }
+        /// <summary>
+        /// Maps raw LLM table DTOs into domain TableDescription objects,
+        /// translating the LLM's friendlyName/description keys into the
+        /// domain's SuggestedName/SuggestedDescription properties.
+        /// Null-safe: a null source yields an empty list; null entries are skipped.
+        /// </summary>
+        private List<TableDescription> MapLlmTableDescriptions(List<LlmTableDescriptionDto> source)
+        {
+            var result = new List<TableDescription>();
+            if (source == null)
+            {
+                return result;
+            }
 
+            foreach (var dto in source)
+            {
+                if (dto == null)
+                {
+                    continue;
+                }
+
+                result.Add(new TableDescription
+                {
+                    TableName = dto.TableName,
+                    SuggestedName = dto.FriendlyName,
+                    SuggestedDescription = dto.Description
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Maps raw LLM column DTOs into domain ColumnDescription objects,
+        /// translating the LLM's friendlyName/description keys into the
+        /// domain's SuggestedName/SuggestedDescription properties.
+        /// Null-safe: a null source yields an empty list; null entries are skipped.
+        /// </summary>
+        private List<ColumnDescription> MapLlmColumnDescriptions(List<LlmColumnDescriptionDto> source)
+        {
+            var result = new List<ColumnDescription>();
+            if (source == null)
+            {
+                return result;
+            }
+
+            foreach (var dto in source)
+            {
+                if (dto == null)
+                {
+                    continue;
+                }
+
+                result.Add(new ColumnDescription
+                {
+                    TableName = dto.TableName,
+                    ColumnName = dto.ColumnName,
+                    SuggestedName = dto.FriendlyName,
+                    SuggestedDescription = dto.Description,
+                    IsLookupColumn = dto.IsLookupColumn
+                });
+            }
+
+            return result;
+        }
         private SchemaAnalysisResult ParseSchemaAnalysisResponse(string response)
         {
             try
@@ -1574,8 +1661,10 @@ namespace DynamicDasboardWebAPI.Services
 
                 var analysisData = new SchemaAnalysisData
                 {
-                    TableDescriptions = llmResponse.TableDescriptions ?? new List<TableDescription>(),
-                    ColumnDescriptions = llmResponse.ColumnDescriptions ?? new List<ColumnDescription>(),
+                   // TableDescriptions = llmResponse.TableDescriptions ?? new List<TableDescription>(),
+                   // ColumnDescriptions = llmResponse.ColumnDescriptions ?? new List<ColumnDescription>(),
+                    TableDescriptions = MapLlmTableDescriptions(llmResponse.TableDescriptions) ?? new List<TableDescription>(),
+                    ColumnDescriptions = MapLlmColumnDescriptions(llmResponse.ColumnDescriptions) ?? new List<ColumnDescription>(),
                     PotentialConflicts = llmResponse.PotentialConflicts ?? new List<PotentialConflict>(),
                     UnclearElements = llmResponse.UnclearElements ?? new List<UnclearElement>(),
                     SuggestedRelationships = MapLlmRelationships(llmResponse.SuggestedRelationships)

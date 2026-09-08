@@ -22,7 +22,11 @@ namespace DynamicDasboardWebAPI.Services.LLM
         private readonly string _apiKey;
         private readonly string _model;
         private readonly string _apiEndpoint;
-
+        #region NewAdditionByClaudeIn28082026
+        private readonly double _temperature;
+        private readonly int _maxTokens;
+        private readonly int _timeoutSeconds;
+        #endregion
         public DeepSeekLLMService(HttpClient httpClient, IConfiguration configuration)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -34,6 +38,19 @@ namespace DynamicDasboardWebAPI.Services.LLM
 
             _model = _configuration["DeepSeek:Model"] ?? "deepseek-chat";
             _apiEndpoint = _configuration["DeepSeek:Endpoint"] ?? "https://api.deepseek.com/v1/chat/completions";
+
+            #region Claude Modification - read generation settings from config (with safe fallbacks) 28 8 2026
+            // Read from LlmService:SchemaAnalysis, falling back to previous hardcoded values.
+            _temperature = _configuration.GetValue<double>("LlmService:SchemaAnalysis:Temperature", 0.2);
+            _maxTokens = _configuration.GetValue<int>("LlmService:SchemaAnalysis:MaxTokens", 8000);
+            _timeoutSeconds = _configuration.GetValue<int>("LlmService:SchemaAnalysis:TimeoutSeconds", 120);
+
+            // Apply the request timeout to the HttpClient (previously never set).
+            if (_timeoutSeconds > 0)
+            {
+                _httpClient.Timeout = TimeSpan.FromSeconds(_timeoutSeconds);
+            }
+            #endregion
         }
 
         /// <inheritdoc/>
@@ -333,8 +350,13 @@ Do NOT generate SQL - only explain what the chart will show.";
                     new { role = "system", content = systemPrompt },
                     new { role = "user", content = userPrompt }
                 },
-                temperature = 0.2, //temp
-                max_tokens = 8000 //temp
+                //   temperature = 0.2, //temp
+                //   max_tokens = 8000, //temp
+
+                #region Claude Modification - use configured values instead of hardcoded temp/tokens
+                temperature = _temperature,
+                max_tokens = _maxTokens
+                #endregion
             };
 
             var content = new StringContent(

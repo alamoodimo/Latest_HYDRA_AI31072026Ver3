@@ -12,13 +12,14 @@ namespace DynamicDasboardWebAPI.Controllers
     public class SchemaAnalysisController : AppControllerBase
     {
         private readonly SchemaAnalysisService _analysisService;
-
+        private readonly ILogsService _logsService;
         public SchemaAnalysisController(
             SchemaAnalysisService analysisService,
             ILogsService logsService)
             : base(logsService)
         {
             _analysisService = analysisService ?? throw new ArgumentNullException(nameof(analysisService));
+            _logsService = logsService ?? throw new ArgumentNullException(nameof(analysisService));
         }
 
         #region Full Schema Analysis (Legacy)
@@ -33,6 +34,10 @@ namespace DynamicDasboardWebAPI.Controllers
         {
             try
             {
+           await     _logsService
+                    .AddLogAsync(GetUserId(),
+                    "Run Analysis",
+                    $"The Analyse Schema has been started for Database Id: {databaseId}");
                 var result = await _analysisService.AnalyzeDatabaseSchemaAsync(databaseId);
                 return Ok(result);
             }
