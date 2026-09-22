@@ -2539,9 +2539,116 @@
             Analyzes specific columns for a table (helper for chunked processing)
             </summary>
         </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.AnalyzeTableColumnsWithFinishReasonAsync(DynamicDashboardCommon.Models.TableSchema,System.String,System.Collections.Generic.List{DynamicDashboardCommon.Models.ColumnSchema})">
+            <summary>
+            Finish-reason-aware variant of the chunked column analysis helper.
+            Identical to AnalyzeTableColumnsAsync(table, databaseName, columns) except it
+            calls GenerateSchemaAnalysisWithFinishReasonAsync so it can detect a truncated
+            or empty chunk and retry up to MaxChunkRetries before failing loudly.
+            The original method is left untouched for backward compatibility / easy rollback.
+            </summary>
+        </member>
         <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.GetAnalysisCountsAsync(System.Int32,System.Boolean)">
             <summary>
             Gets the total count of items needing analysis (for initial progress setup)
+            </summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.SchemaAnalysisService.SchemaAnalysisChunk">
+            <summary>
+            One unit of LLM work: up to a column limit, possibly spanning several tables.
+            Label identifies the pass and position, e.g. "Main chunk 3" or "Gap-fill 1 chunk 2".
+            </summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkTableSlice">
+            <summary>
+            A table plus the columns to analyze for it. Used both as a "work item"
+            (before packing) and as a slice inside a chunk (after packing).
+            RequestTableDescription is true only where the table-level suggestion
+            should be requested, so a split table is never described twice.
+            </summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkMergeAccumulator">
+            <summary>
+            Accumulates merged results across all chunks and passes, with
+            case-insensitive de-duplication (first accepted suggestion wins).
+            Lists preserve merge order so the FE receives a stable ordering.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.AnalyzeDatabaseSchemaChunkedInternalAsync(System.Int32,DynamicDashboardCommon.Models.Database)">
+            <summary>
+            Full-schema analysis built from column-level chunks, with a targeted gap-fill:
+            1. Load the schema once; take all active tables (always a full re-analysis).
+            2. Main pass: pack into chunks of MaxColumnsPerChunk and analyze them in parallel
+               (MaxParallelChunks), with finish-reason detection and retries per chunk.
+            3. Gap-fill (up to GapFillPasses): collect ONLY the tables/columns still missing,
+               whether skipped by the LLM or lost to a failed chunk, and re-analyze them in
+               smaller chunks (GapFillMaxColumnsPerChunk).
+            4. Coverage report: anything still missing is listed in Errors.
+            5. Relationships: one pass over the whole schema.
+            6. Single result. Success = true if anything was analyzed (partial results are
+               shown with the gaps listed in Errors); false only if nothing was analyzed.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.BuildWorkItemsFromTables(System.Collections.Generic.List{DynamicDashboardCommon.Models.TableSchema})">
+            <summary>
+            Converts tables into work items for the main pass: every column, plus the
+            table-level description.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.CollectMissingWorkItems(System.Collections.Generic.List{DynamicDashboardCommon.Models.TableSchema},DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkMergeAccumulator)">
+            <summary>
+            Builds work items for everything still missing from the accumulator:
+            columns without a suggestion, and tables without a table-level suggestion.
+            Used both to drive gap-fill passes and to build the final coverage report.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.PackIntoChunks(System.Collections.Generic.List{DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkTableSlice},System.Int32,System.String)">
+            <summary>
+            Greedy column-level bin-packing shared by the main pass and gap-fill passes.
+            The column count is the primary limit; MaxTablesPerChunk is a secondary cap.
+            A work item wider than the limit is split across consecutive chunks, and only
+            its first slice requests the table description.
+            Pure function: no LLM calls, does not mutate the schema.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.RunChunksAsync(System.Collections.Generic.List{DynamicDasboardWebAPI.Services.SchemaAnalysisService.SchemaAnalysisChunk},System.String,DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkMergeAccumulator)">
+            <summary>
+            Runs chunks through the LLM with throttled parallelism (MaxParallelChunks),
+            then merges successful results into the accumulator in chunk order.
+            Returns the failure messages of chunks that failed after all retries.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.BuildChunkSchemaString(DynamicDasboardWebAPI.Services.SchemaAnalysisService.SchemaAnalysisChunk)">
+            <summary>
+            Builds the schema text for one chunk. Slices that do not request the table
+            description tell the LLM to return columns only for that table.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.AnalyzeSchemaChunkAsync(DynamicDasboardWebAPI.Services.SchemaAnalysisService.SchemaAnalysisChunk,System.String)">
+            <summary>
+            Sends one chunk to the LLM and returns its parsed result. Retries up to
+            MaxChunkRetries when the response is empty, truncated, unparseable, contains
+            no column suggestions, or the call throws (e.g. a rate limit).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.MergeChunkResult(DynamicDasboardWebAPI.Services.SchemaAnalysisService.SchemaAnalysisChunk,DynamicDashboardCommon.Models.SchemaAnalysisData,DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkMergeAccumulator)">
+            <summary>
+            Merges one chunk's parsed result into the accumulator:
+            - accepts only tables/columns that belong to this chunk (drops hallucinated names),
+            - normalizes names to the real DB casing,
+            - de-duplicates (first accepted suggestion wins).
+            Coverage is evaluated once at the end, not per chunk.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.BuildCoverageReport(System.Collections.Generic.List{DynamicDasboardWebAPI.Services.SchemaAnalysisService.ChunkTableSlice})">
+            <summary>
+            Formats the items still missing after all passes, grouped per table so the
+            list stays readable on very large schemas.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.SchemaAnalysisService.BuildColumnKey(System.String,System.String)">
+            <summary>
+            Single definition of the table/column key used for matching and de-duplication.
             </summary>
         </member>
         <member name="T:DynamicDasboardWebAPI.Services.ColumnService">
@@ -2932,6 +3039,30 @@
         <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.GenerateSchemaAnalysisAsync(System.String)">
             <inheritdoc/>
         </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
+            <summary>
+            Finish-reason-aware schema analysis call for Claude. Returns both the content
+            and the normalized reason generation stopped, so the caller can detect a
+            truncated response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+            Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.CallClaudeApiWithFinishReasonAsync(System.String,System.String)">
+            <summary>
+            Sends a request to Claude and returns content plus normalized finish reason.
+            Uses a per-request HttpRequestMessage so request headers are NOT mutated on the
+            shared HttpClient (required for safe parallel chunk calls). Unlike the existing
+            CallClaudeApiAsync, this throws a clear ApplicationException on a non-success
+            status instead of falling through to parse an error body.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.MapClaudeStopReason(System.String)">
+            <summary>
+            Maps Claude's raw stop_reason onto the normalized LlmFinishReason.
+            "end_turn" / "stop_sequence" -> Stop, "max_tokens" -> Length (truncated).
+            Unrecognized or missing values map to Unknown.
+            </summary>
+        </member>
         <member name="T:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService">
             <summary>
             Implementation of ILLMService using Databricks API
@@ -2968,6 +3099,28 @@
             Normalizes JSON escape sequences to ensure proper parsing
             </summary>
         </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
+            <summary>
+            Finish-reason-aware schema analysis call for Databricks. Returns both content
+            and the normalized reason generation stopped, so the caller can detect a
+            truncated response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+            Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.CallDatabricksApiWithFinishReasonAsync(System.String,System.String)">
+            <summary>
+            Sends a request to Databricks and returns content plus normalized finish reason.
+            Reuses the same per-request/timeout pattern as CallDatabricksApiAsync (already
+            thread-safe), and additionally extracts choices[0].finish_reason. Throws a clear
+            exception on non-success rather than returning a raw error body.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.MapDatabricksFinishReason(System.String)">
+            <summary>
+            Maps Databricks' raw finish_reason (OpenAI-compatible) onto LlmFinishReason.
+            Unrecognized or missing values map to Unknown.
+            </summary>
+        </member>
         <member name="T:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService">
             <summary>
             Implementation of ILlmService using DeepSeek API
@@ -2987,6 +3140,28 @@
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.GenerateChartExplanationAsync(System.String,System.String)">
             <inheritdoc/>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
+            <summary>
+            Finish-reason-aware schema analysis call. Returns both the content and the
+            normalized reason generation stopped, so the caller can detect a truncated
+            response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+            Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.CallDeepSeekApiWithFinishReasonAsync(System.String,System.String)">
+            <summary>
+            Sends a chat request to DeepSeek and returns the content together with the
+            normalized finish reason. Uses a per-request message so request headers are
+            NOT mutated on the shared HttpClient (required for safe parallel calls).
+            Mirrors the request/error style of CallDeepSeekApiAsync.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.MapDeepSeekFinishReason(System.String)">
+            <summary>
+            Maps DeepSeek's raw finish_reason string onto the normalized LlmFinishReason.
+            Unrecognized or missing values map to Unknown.
+            </summary>
         </member>
         <member name="T:DynamicDasboardWebAPI.Services.LLM.ILLMService">
             <summary>
@@ -3037,6 +3212,18 @@
             </summary>
             <param name="prompt">The prompt containing schema and analysis instructions</param>
             <returns>LLM response with schema analysis</returns>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ILLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
+            <summary>
+            Generates schema analysis results from a database schema prompt, returning
+            both the generated content AND the normalized reason generation stopped.
+            Finish-reason-aware counterpart to GenerateSchemaAnalysisAsync(string),
+            kept as a separate method to preserve backward compatibility.
+            Chunked schema analysis uses this to detect a truncated chunk
+            (LlmResponse.IsTruncated) and retry or fail loudly.
+            </summary>
+            <param name="prompt">The prompt containing schema and analysis instructions.</param>
+            <returns>An LlmResponse carrying the content and the normalized LlmFinishReason.</returns>
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.ILLMService.GenerateTermSuggestionsAsync(System.String)">
             <summary>
@@ -3095,6 +3282,28 @@
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.GenerateTermSuggestionsAsync(System.String)">
             <inheritdoc/>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
+            <summary>
+            Finish-reason-aware schema analysis call for SQLCoder. Returns both content and
+            the normalized reason generation stopped, so the caller can detect a truncated
+            response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+            Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.CallSQLCoderApiWithFinishReasonAsync(System.String,System.String)">
+            <summary>
+            Sends a request to SQLCoder (Friendli) and returns content plus normalized finish
+            reason. Uses a per-request HttpRequestMessage so shared HttpClient headers are NOT
+            mutated/cleared (required for safe parallel chunk calls). Assumes an OpenAI-shaped
+            response (choices[0]); unrecognized finish reasons map to Unknown.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.MapSQLCoderFinishReason(System.String)">
+            <summary>
+            Maps SQLCoder's raw finish_reason (assumed OpenAI-compatible) onto LlmFinishReason.
+            Unrecognized or missing values map to Unknown.
+            </summary>
         </member>
         <member name="T:DynamicDasboardWebAPI.Services.ILogsService">
             <summary>

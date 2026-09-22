@@ -1,6 +1,8 @@
 ﻿
 using DynamicDashboardCommon.Models;
-using DynamicDashboardCommon.Models.LLM;
+
+using DynamicDashboardCommon.Enums;        // LlmFinishReason
+using DynamicDashboardCommon.Models.LLM;    // LlmResponse (already imported in this file)
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -27,6 +29,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
         private readonly string _model;
         private readonly string _apiEndpoint;
         private readonly int timeOutSeconds;
+        private readonly int _maxTokens;
         //temp //todo move common methods into a common class and keep only to what is related to the LLM type here Claude for example
         public ClaudeLLMService(HttpClient httpClient, IConfiguration configuration)
         {
@@ -41,6 +44,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
             _model = _configuration["Claude:Model"] ?? "claude-3-sonnet-20240229";
             _apiEndpoint = _configuration["Claude:Endpoint"] ?? "https://api.anthropic.com/v1/messages";
             timeOutSeconds = _configuration.GetValue<int>("LlmService:Timeout", 5000);
+            _maxTokens = _configuration.GetValue<int>("Claude:MaxTokens", 50000);
         }
 
         // Add these methods to the ClaudeLLMService class
@@ -787,7 +791,125 @@ Do NOT generate SQL - only explain what the chart will show.";
                 throw;
             }
         }
-
         #endregion
+
+        /// <summary>
+        /// Finish-reason-aware schema analysis call for Claude. Returns both the content
+        /// and the normalized reason generation stopped, so the caller can detect a
+        /// truncated response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+        /// Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+        /// </summary>
+        public async Task<LlmResponse> GenerateSchemaAnalysisWithFinishReasonAsync(string prompt)
+        {
+            var systemPrompt = "You are an expert database analyst helping improve the usability of database schemas.";
+            return await CallClaudeApiWithFinishReasonAsync(systemPrompt, prompt);
+        }
+
+        /// <summary>
+        /// Sends a request to Claude and returns content plus normalized finish reason.
+        /// Uses a per-request HttpRequestMessage so request headers are NOT mutated on the
+        /// shared HttpClient (required for safe parallel chunk calls). Unlike the existing
+        /// CallClaudeApiAsync, this throws a clear ApplicationException on a non-success
+        /// status instead of falling through to parse an error body.
+        /// </summary>
+        private async Task<LlmResponse> CallClaudeApiWithFinishReasonAsync(string systemPrompt, string userPrompt)
+        {
+            var objSystemPrompt = new List<object>
+    {
+        new
+        {
+            type = "text",
+            text = systemPrompt,
+            cache_control = new { type = "ephemeral" }
+        }
+    };
+
+            var requestBody = new
+            {
+                model = _model,
+                system = objSystemPrompt,
+                messages = new[]
+                {
+            new { role = "user", content = userPrompt }
+        },
+                temperature = 1,
+                max_tokens = 50000
+            };
+
+            // Per-request message: headers set here, NOT on _httpClient.DefaultRequestHeaders,
+            // so concurrent chunk calls do not race on the shared client.
+            using (var request = new HttpRequestMessage(HttpMethod.Post, _apiEndpoint))
+            {
+                request.Content = new StringContent(
+                    JsonSerializer.Serialize(requestBody),
+                    Encoding.UTF8,
+                    "application/json");
+
+                request.Headers.Add("x-api-key", _apiKey);
+                request.Headers.Add("anthropic-version", "2023-06-01");
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new ApplicationException($"Claude API error: {response.StatusCode}");
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                using (var jsonResponse = JsonDocument.Parse(responseContent))
+                {
+                    var root = jsonResponse.RootElement;
+
+                    string messageContent = null;
+                    if (root.TryGetProperty("content", out var contentArray)
+                        && contentArray.ValueKind == JsonValueKind.Array
+                        && contentArray.GetArrayLength() > 0)
+                    {
+                        var firstBlock = contentArray[0];
+                        if (firstBlock.TryGetProperty("text", out var textElement))
+                        {
+                            messageContent = textElement.GetString();
+                        }
+                    }
+
+                    string rawStopReason = null;
+                    if (root.TryGetProperty("stop_reason", out var stopReasonElement))
+                    {
+                        rawStopReason = stopReasonElement.GetString();
+                    }
+
+                    return new LlmResponse
+                    {
+                        Content = messageContent,
+                        FinishReason = MapClaudeStopReason(rawStopReason)
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Maps Claude's raw stop_reason onto the normalized LlmFinishReason.
+        /// "end_turn" / "stop_sequence" -> Stop, "max_tokens" -> Length (truncated).
+        /// Unrecognized or missing values map to Unknown.
+        /// </summary>
+        private LlmFinishReason MapClaudeStopReason(string rawStopReason)
+        {
+            if (string.IsNullOrWhiteSpace(rawStopReason))
+            {
+                return LlmFinishReason.Unknown;
+            }
+
+            switch (rawStopReason.Trim().ToLowerInvariant())
+            {
+                case "end_turn":
+                case "stop_sequence":
+                    return LlmFinishReason.Stop;
+                case "max_tokens":
+                    return LlmFinishReason.Length;
+                default:
+                    return LlmFinishReason.Unknown;
+            }
+        }
     }
 }

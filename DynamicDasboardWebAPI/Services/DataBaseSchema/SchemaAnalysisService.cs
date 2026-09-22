@@ -1,6 +1,7 @@
 ﻿using DynamicDasboardWebAPI.Services.LLM;
 using DynamicDashboardCommon.Models;
 using DynamicDashboardCommon.Models.DTOs.LLM;
+using DynamicDashboardCommon.Models.LLM;
 using DynamicDashboardCommon.Models.SchemaAnalysis;
 using Microsoft.Extensions.Logging;
 using System;
@@ -29,18 +30,35 @@ namespace DynamicDasboardWebAPI.Services
         private const int MaxTablesPerBatch = 10;
         private const int MaxColumnsPerTableBatch = 50;
         private const int DelayBetweenLLMCallsMs = 200;
+        private readonly int _maxColumnsPerChunk;
+        private readonly int _maxTablesPerChunk;
+        private readonly IConfiguration _configuration;
+        private readonly int _maxChunkRetries;
+        private readonly int _maxParallelChunks;
+        private readonly int _gapFillPasses;
+        private readonly int _gapFillMaxColumnsPerChunk;
 
         public SchemaAnalysisService(
             DatabaseSchemaService schemaService,
             DatabaseService databaseService,
             LLMServiceFactory llmServiceFactory,
-            ILogger<SchemaAnalysisService> logger)
+            ILogger<SchemaAnalysisService> logger,
+            IConfiguration configuration)
         {
             _schemaService = schemaService ?? throw new ArgumentNullException(nameof(schemaService));
             _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
             _llmServiceFactory = llmServiceFactory ?? throw new ArgumentNullException(nameof(llmServiceFactory));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _llmService = _llmServiceFactory.CreateLlmService();
+            // in the constructor, alongside the existing config reads:
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
+            _maxColumnsPerChunk = Math.Max(1, _configuration.GetValue<int>("LlmService:SchemaAnalysis:MaxColumnsPerChunk", 50));
+            _maxTablesPerChunk = Math.Max(1, _configuration.GetValue<int>("LlmService:SchemaAnalysis:MaxTablesPerChunk", 10));
+            _maxChunkRetries = Math.Max(0, _configuration.GetValue<int>("LlmService:SchemaAnalysis:MaxChunkRetries", 1));
+            _maxParallelChunks = Math.Max(1, _configuration.GetValue<int>("LlmService:SchemaAnalysis:MaxParallelChunks", 4));
+            _gapFillPasses = Math.Max(0, _configuration.GetValue<int>("LlmService:SchemaAnalysis:GapFillPasses", 1));
+            _gapFillMaxColumnsPerChunk = Math.Max(1, _configuration.GetValue<int>("LlmService:SchemaAnalysis:GapFillMaxColumnsPerChunk", 25));
         }
 
         #region Public Analysis Methods
@@ -57,6 +75,19 @@ namespace DynamicDasboardWebAPI.Services
                 {
                     return CreateErrorResult($"Database with ID {databaseId} not found");
                 }
+
+                var useChunked = _configuration.GetValue<bool>(
+    "LlmService:SchemaAnalysis:UseChunkedAnalysis", true);
+
+                if (useChunked)
+                {
+                    // NEW: build the full result by looping the paged chunk methods internally,
+                    // then merging tables + columns + relationships into one result.
+                    return await AnalyzeDatabaseSchemaChunkedInternalAsync(databaseId, database);
+                }
+
+
+                // LEGACY single-call path (unchanged) — retained for instant rollback via the toggle.
 
                 var schemaObj = await GetOrGenerateSchemaAsync(databaseId, database);
                 if (schemaObj == null)
@@ -656,6 +687,8 @@ namespace DynamicDasboardWebAPI.Services
         {
             public List<ColumnDescription> ColumnDescriptions { get; set; }
         }
+        #endregion
+
 
         #region Relationship Analysis
 
@@ -1661,8 +1694,8 @@ namespace DynamicDasboardWebAPI.Services
 
                 var analysisData = new SchemaAnalysisData
                 {
-                   // TableDescriptions = llmResponse.TableDescriptions ?? new List<TableDescription>(),
-                   // ColumnDescriptions = llmResponse.ColumnDescriptions ?? new List<ColumnDescription>(),
+                    // TableDescriptions = llmResponse.TableDescriptions ?? new List<TableDescription>(),
+                    // ColumnDescriptions = llmResponse.ColumnDescriptions ?? new List<ColumnDescription>(),
                     TableDescriptions = MapLlmTableDescriptions(llmResponse.TableDescriptions) ?? new List<TableDescription>(),
                     ColumnDescriptions = MapLlmColumnDescriptions(llmResponse.ColumnDescriptions) ?? new List<ColumnDescription>(),
                     PotentialConflicts = llmResponse.PotentialConflicts ?? new List<PotentialConflict>(),
@@ -1685,6 +1718,8 @@ namespace DynamicDasboardWebAPI.Services
                 return CreateErrorResult($"Unexpected error: {ex.Message}");
             }
         }
+
+
 
         /// <summary>
         /// Maps flat LLM relationship structure to nested model structure
@@ -1983,9 +2018,14 @@ namespace DynamicDasboardWebAPI.Services
                 {
                     var table = tableGroup.Key;
                     var columns = tableGroup.Select(x => x.Column).ToList();
+                    #region oldCode19092026
+                    // var tableResult = await AnalyzeTableColumnsAsync(table, database.Name, columns);
+                    #endregion
 
-                    var tableResult = await AnalyzeTableColumnsAsync(table, database.Name, columns);
-
+                    var useFinishReason = _configuration.GetValue<bool>("LlmService:SchemaAnalysis:UseChunkedAnalysis", true);
+                    var tableResult = useFinishReason
+    ? await AnalyzeTableColumnsWithFinishReasonAsync(table, database.Name, columns)
+    : await AnalyzeTableColumnsAsync(table, database.Name, columns);
                     if (tableResult.Success && tableResult.AnalysisData?.ColumnDescriptions != null)
                     {
                         allColumnDescriptions.AddRange(tableResult.AnalysisData.ColumnDescriptions);
@@ -2049,7 +2089,67 @@ namespace DynamicDasboardWebAPI.Services
                 return CreateErrorResult($"Column analysis failed for {table.DBName}: {ex.Message}");
             }
         }
+        /// <summary>
+        /// Finish-reason-aware variant of the chunked column analysis helper.
+        /// Identical to AnalyzeTableColumnsAsync(table, databaseName, columns) except it
+        /// calls GenerateSchemaAnalysisWithFinishReasonAsync so it can detect a truncated
+        /// or empty chunk and retry up to MaxChunkRetries before failing loudly.
+        /// The original method is left untouched for backward compatibility / easy rollback.
+        /// </summary>
+        private async Task<SchemaAnalysisResult> AnalyzeTableColumnsWithFinishReasonAsync(
+            TableSchema table,
+            string databaseName,
+            List<ColumnSchema> columnsToAnalyze)
+        {
+            try
+            {
+                if (!columnsToAnalyze.Any())
+                {
+                    return new SchemaAnalysisResult
+                    {
+                        Success = true,
+                        AnalysisData = new SchemaAnalysisData { ColumnDescriptions = new List<ColumnDescription>() }
+                    };
+                }
 
+                var prompt = BuildColumnAnalysisPrompt(table, columnsToAnalyze, databaseName);
+
+                LlmResponse llmResponse = null;
+                var attempt = 0;
+
+                while (attempt <= _maxChunkRetries)
+                {
+                    llmResponse = await _llmService.GenerateSchemaAnalysisWithFinishReasonAsync(prompt);
+
+                    if (llmResponse != null && !llmResponse.IsTruncated && !llmResponse.IsEmpty)
+                    {
+                        break;
+                    }
+
+                    attempt++;
+                }
+
+                if (llmResponse == null || llmResponse.IsEmpty)
+                {
+                    return CreateErrorResult(
+                        $"Column analysis for {table.DBName} returned no usable content after {attempt} attempt(s).");
+                }
+
+                if (llmResponse.IsTruncated)
+                {
+                    return CreateErrorResult(
+                        $"Column analysis for {table.DBName} was truncated (token limit) after {attempt} attempt(s). " +
+                        $"Reduce chunk size (take) or increase the provider's MaxTokens.");
+                }
+
+                return ParseColumnAnalysisResponse(llmResponse.Content);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to analyze columns for table {TableName}", table.DBName);
+                return CreateErrorResult($"Column analysis failed for {table.DBName}: {ex.Message}");
+            }
+        }
         /// <summary>
         /// Gets the total count of items needing analysis (for initial progress setup)
         /// </summary>
@@ -2092,12 +2192,544 @@ namespace DynamicDasboardWebAPI.Services
             return result;
         }
 
+
+        #region Chunked Full-Schema Analysis (50-column chunks + gap-fill)
+
+        /// <summary>
+        /// One unit of LLM work: up to a column limit, possibly spanning several tables.
+        /// Label identifies the pass and position, e.g. "Main chunk 3" or "Gap-fill 1 chunk 2".
+        /// </summary>
+        private sealed class SchemaAnalysisChunk
+        {
+            public string Label { get; set; }
+            public List<ChunkTableSlice> Slices { get; } = new List<ChunkTableSlice>();
+            public int ColumnCount { get; set; }
+        }
+
+        /// <summary>
+        /// A table plus the columns to analyze for it. Used both as a "work item"
+        /// (before packing) and as a slice inside a chunk (after packing).
+        /// RequestTableDescription is true only where the table-level suggestion
+        /// should be requested, so a split table is never described twice.
+        /// </summary>
+        private sealed class ChunkTableSlice
+        {
+            public TableSchema Table { get; set; }
+            public List<ColumnSchema> Columns { get; set; } = new List<ColumnSchema>();
+            public bool RequestTableDescription { get; set; }
+        }
+
+        /// <summary>
+        /// Accumulates merged results across all chunks and passes, with
+        /// case-insensitive de-duplication (first accepted suggestion wins).
+        /// Lists preserve merge order so the FE receives a stable ordering.
+        /// </summary>
+        private sealed class ChunkMergeAccumulator
+        {
+            public List<TableDescription> Tables { get; } = new List<TableDescription>();
+            public List<ColumnDescription> Columns { get; } = new List<ColumnDescription>();
+            public HashSet<string> TableKeys { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public HashSet<string> ColumnKeys { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Full-schema analysis built from column-level chunks, with a targeted gap-fill:
+        /// 1. Load the schema once; take all active tables (always a full re-analysis).
+        /// 2. Main pass: pack into chunks of MaxColumnsPerChunk and analyze them in parallel
+        ///    (MaxParallelChunks), with finish-reason detection and retries per chunk.
+        /// 3. Gap-fill (up to GapFillPasses): collect ONLY the tables/columns still missing,
+        ///    whether skipped by the LLM or lost to a failed chunk, and re-analyze them in
+        ///    smaller chunks (GapFillMaxColumnsPerChunk).
+        /// 4. Coverage report: anything still missing is listed in Errors.
+        /// 5. Relationships: one pass over the whole schema.
+        /// 6. Single result. Success = true if anything was analyzed (partial results are
+        ///    shown with the gaps listed in Errors); false only if nothing was analyzed.
+        /// </summary>
+        private async Task<SchemaAnalysisResult> AnalyzeDatabaseSchemaChunkedInternalAsync(
+            int databaseId,
+            Database database)
+        {
+            var startTime = DateTime.UtcNow;
+
+            try
+            {
+                // Step 1: load schema once
+                var schemaObj = await GetOrGenerateSchemaAsync(databaseId, database);
+                if (schemaObj?.Tables == null || !schemaObj.Tables.Any())
+                {
+                    return CreateErrorResult("No tables found in database schema");
+                }
+
+                var activeTables = schemaObj.Tables
+                    .Where(t => t != null && t.IsActive && !string.IsNullOrWhiteSpace(t.DBName))
+                    .OrderBy(t => t.DBName)
+                    .ToList();
+
+                if (!activeTables.Any())
+                {
+                    return CreateErrorResult("No active tables available for analysis");
+                }
+
+                var accumulator = new ChunkMergeAccumulator();
+
+                // Step 2: main pass
+                var mainChunks = PackIntoChunks(BuildWorkItemsFromTables(activeTables), _maxColumnsPerChunk, "Main");
+                if (!mainChunks.Any())
+                {
+                    return CreateErrorResult("No tables or columns available for analysis");
+                }
+
+                var lastPassFailures = await RunChunksAsync(mainChunks, database.Name, accumulator);
+
+                // Step 3: gap-fill passes (only what is still missing, in smaller chunks)
+                var gapFillChunkCount = 0;
+                for (var pass = 1; pass <= _gapFillPasses; pass++)
+                {
+                    var missingItems = CollectMissingWorkItems(activeTables, accumulator);
+                    if (!missingItems.Any())
+                    {
+                        break;
+                    }
+
+                    var gapFillChunks = PackIntoChunks(missingItems, _gapFillMaxColumnsPerChunk, $"Gap-fill {pass}");
+                    gapFillChunkCount += gapFillChunks.Count;
+                    lastPassFailures = await RunChunksAsync(gapFillChunks, database.Name, accumulator);
+                }
+
+                // Step 4: final coverage (failures are reported only if something is still missing)
+                var errors = new List<string>();
+                var coverageReport = BuildCoverageReport(CollectMissingWorkItems(activeTables, accumulator));
+                if (coverageReport.Any())
+                {
+                    errors.AddRange(lastPassFailures);
+                    errors.AddRange(coverageReport);
+                }
+
+                // Step 5: relationships (single pass; needs the whole schema).
+                // Runs after the chunk passes on purpose: it uses the legacy LLM call path,
+                // which mutates shared HttpClient headers and must not overlap parallel calls.
+                var relationships = new List<SuggestedRelationship>();
+                var relationshipResult = await AnalyzeRelationshipsSmartAsync(databaseId);
+                if (relationshipResult.Success && relationshipResult.AnalysisData?.SuggestedRelationships != null)
+                {
+                    relationships = relationshipResult.AnalysisData.SuggestedRelationships;
+                }
+                else if (!string.IsNullOrWhiteSpace(relationshipResult.ErrorMessage))
+                {
+                    errors.Add($"Relationships: {relationshipResult.ErrorMessage}");
+                }
+
+                // Step 6: single merged result
+                var totalColumns = activeTables.Sum(t => t.Columns?.Count(c => c != null) ?? 0);
+                var analyzedAnything = accumulator.Tables.Any() || accumulator.Columns.Any();
+                var chunkSummary = gapFillChunkCount > 0
+                    ? $"{mainChunks.Count} chunk(s) + {gapFillChunkCount} gap-fill chunk(s)"
+                    : $"{mainChunks.Count} chunk(s)";
+
+                return new SchemaAnalysisResult
+                {
+                    Success = analyzedAnything,
+                    ErrorMessage = analyzedAnything
+                        ? null
+                        : errors.FirstOrDefault() ?? "The LLM returned no usable suggestions",
+                    AnalysisData = new SchemaAnalysisData
+                    {
+                        TableDescriptions = accumulator.Tables,
+                        ColumnDescriptions = accumulator.Columns,
+                        SuggestedRelationships = relationships,
+                        PotentialConflicts = new List<PotentialConflict>(),
+                        UnclearElements = new List<UnclearElement>()
+                    },
+                    Errors = errors,
+                    Message = $"Analyzed {accumulator.Columns.Count} of {totalColumns} columns and " +
+                              $"{accumulator.Tables.Count} of {activeTables.Count} tables in {chunkSummary}.",
+                    ProcessingTime = DateTime.UtcNow,
+                    Duration = DateTime.UtcNow - startTime
+                };
+            }
+            catch (Exception ex)
+            {
+                return CreateErrorResult($"Error in chunked schema analysis: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Converts tables into work items for the main pass: every column, plus the
+        /// table-level description.
+        /// </summary>
+        private List<ChunkTableSlice> BuildWorkItemsFromTables(List<TableSchema> tables)
+        {
+            return tables
+                .Select(table => new ChunkTableSlice
+                {
+                    Table = table,
+                    Columns = table.Columns?.Where(c => c != null).ToList() ?? new List<ColumnSchema>(),
+                    RequestTableDescription = true
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Builds work items for everything still missing from the accumulator:
+        /// columns without a suggestion, and tables without a table-level suggestion.
+        /// Used both to drive gap-fill passes and to build the final coverage report.
+        /// </summary>
+        private List<ChunkTableSlice> CollectMissingWorkItems(List<TableSchema> tables, ChunkMergeAccumulator accumulator)
+        {
+            var missingItems = new List<ChunkTableSlice>();
+
+            foreach (var table in tables)
+            {
+                var missingColumns = (table.Columns ?? new List<ColumnSchema>())
+                    .Where(c => c != null && !accumulator.ColumnKeys.Contains(BuildColumnKey(table.DBName, c.DBName)))
+                    .ToList();
+
+                var needsTableDescription = !accumulator.TableKeys.Contains(table.DBName);
+
+                if (missingColumns.Any() || needsTableDescription)
+                {
+                    missingItems.Add(new ChunkTableSlice
+                    {
+                        Table = table,
+                        Columns = missingColumns,
+                        RequestTableDescription = needsTableDescription
+                    });
+                }
+            }
+
+            return missingItems;
+        }
+
+        /// <summary>
+        /// Greedy column-level bin-packing shared by the main pass and gap-fill passes.
+        /// The column count is the primary limit; MaxTablesPerChunk is a secondary cap.
+        /// A work item wider than the limit is split across consecutive chunks, and only
+        /// its first slice requests the table description.
+        /// Pure function: no LLM calls, does not mutate the schema.
+        /// </summary>
+        private List<SchemaAnalysisChunk> PackIntoChunks(List<ChunkTableSlice> workItems, int maxColumnsPerChunk, string passName)
+        {
+            var chunks = new List<SchemaAnalysisChunk>();
+            var current = new SchemaAnalysisChunk();
+
+            void CloseCurrentChunk()
+            {
+                if (current.Slices.Count > 0)
+                {
+                    current.Label = $"{passName} chunk {chunks.Count + 1}";
+                    chunks.Add(current);
+                    current = new SchemaAnalysisChunk();
+                }
+            }
+
+            foreach (var item in workItems)
+            {
+                var columns = item.Columns ?? new List<ColumnSchema>();
+
+                if (current.Slices.Count >= _maxTablesPerChunk)
+                {
+                    CloseCurrentChunk();
+                }
+
+                if (columns.Count == 0)
+                {
+                    // Nothing to ask for this table unless its description is needed.
+                    if (item.RequestTableDescription)
+                    {
+                        current.Slices.Add(new ChunkTableSlice
+                        {
+                            Table = item.Table,
+                            Columns = new List<ColumnSchema>(),
+                            RequestTableDescription = true
+                        });
+                    }
+                    continue;
+                }
+
+                var index = 0;
+                var requestDescription = item.RequestTableDescription;
+
+                while (index < columns.Count)
+                {
+                    if (current.ColumnCount >= maxColumnsPerChunk || current.Slices.Count >= _maxTablesPerChunk)
+                    {
+                        CloseCurrentChunk();
+                    }
+
+                    // Always >= 1: after a close ColumnCount is 0, otherwise it is below the limit.
+                    var take = Math.Min(maxColumnsPerChunk - current.ColumnCount, columns.Count - index);
+
+                    current.Slices.Add(new ChunkTableSlice
+                    {
+                        Table = item.Table,
+                        Columns = columns.GetRange(index, take),
+                        RequestTableDescription = requestDescription
+                    });
+
+                    current.ColumnCount += take;
+                    index += take;
+                    requestDescription = false;
+                }
+            }
+
+            CloseCurrentChunk();
+            return chunks;
+        }
+
+        /// <summary>
+        /// Runs chunks through the LLM with throttled parallelism (MaxParallelChunks),
+        /// then merges successful results into the accumulator in chunk order.
+        /// Returns the failure messages of chunks that failed after all retries.
+        /// </summary>
+        private async Task<List<string>> RunChunksAsync(
+            List<SchemaAnalysisChunk> chunks,
+            string databaseName,
+            ChunkMergeAccumulator accumulator)
+        {
+            var failures = new List<string>();
+            SchemaAnalysisResult[] chunkResults;
+
+            using (var throttler = new SemaphoreSlim(_maxParallelChunks))
+            {
+                var chunkTasks = chunks.Select(async chunk =>
+                {
+                    await throttler.WaitAsync();
+                    try
+                    {
+                        return await AnalyzeSchemaChunkAsync(chunk, databaseName);
+                    }
+                    finally
+                    {
+                        throttler.Release();
+                    }
+                }).ToList();
+
+                // Task.WhenAll preserves order: chunkResults[i] belongs to chunks[i].
+                chunkResults = await Task.WhenAll(chunkTasks);
+            }
+
+            // Merge sequentially (the accumulator is not thread-safe).
+            for (var i = 0; i < chunks.Count; i++)
+            {
+                var chunkResult = chunkResults[i];
+                if (chunkResult == null || !chunkResult.Success || chunkResult.AnalysisData == null)
+                {
+                    failures.Add(chunkResult?.ErrorMessage ?? $"{chunks[i].Label} failed");
+                    continue;
+                }
+
+                MergeChunkResult(chunks[i], chunkResult.AnalysisData, accumulator);
+            }
+
+            return failures;
+        }
+
+        /// <summary>
+        /// Builds the schema text for one chunk. Slices that do not request the table
+        /// description tell the LLM to return columns only for that table.
+        /// </summary>
+        private string BuildChunkSchemaString(SchemaAnalysisChunk chunk)
+        {
+            var sb = new StringBuilder();
+
+            foreach (var slice in chunk.Slices)
+            {
+                sb.AppendLine(slice.RequestTableDescription
+                    ? $"Table: {slice.Table.DBName}"
+                    : $"Table: {slice.Table.DBName} (columns only - do NOT add this table to tableDescriptions)");
+
+                foreach (var column in slice.Columns)
+                {
+                    var attributes = new List<string>();
+                    if (column.IsPrimaryKey) attributes.Add("PK");
+                    if (!column.IsNullable) attributes.Add("Required");
+
+                    var attributeText = attributes.Any() ? $" [{string.Join(", ", attributes)}]" : string.Empty;
+                    sb.AppendLine($"  - {column.DBName} ({column.DataType}){attributeText}");
+                }
+
+                sb.AppendLine();
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Sends one chunk to the LLM and returns its parsed result. Retries up to
+        /// MaxChunkRetries when the response is empty, truncated, unparseable, contains
+        /// no column suggestions, or the call throws (e.g. a rate limit).
+        /// </summary>
+        private async Task<SchemaAnalysisResult> AnalyzeSchemaChunkAsync(SchemaAnalysisChunk chunk, string databaseName)
+        {
+            var prompt = BuildFullSchemaAnalysisPrompt(BuildChunkSchemaString(chunk), databaseName);
+            var totalAttempts = _maxChunkRetries + 1;
+            var lastError = "No attempt made";
+
+            for (var attempt = 1; attempt <= totalAttempts; attempt++)
+            {
+                if (attempt > 1)
+                {
+                    await Task.Delay(DelayBetweenLLMCallsMs * attempt);
+                }
+
+                try
+                {
+                    var llmResponse = await _llmService.GenerateSchemaAnalysisWithFinishReasonAsync(prompt);
+
+                    if (llmResponse == null || llmResponse.IsEmpty)
+                    {
+                        lastError = "LLM returned empty content";
+                        continue;
+                    }
+
+                    if (llmResponse.IsTruncated)
+                    {
+                        lastError = "LLM response was truncated (token limit reached)";
+                        continue;
+                    }
+
+                    var parsed = ParseSchemaAnalysisResponse(llmResponse.Content);
+                    if (!parsed.Success)
+                    {
+                        lastError = parsed.ErrorMessage ?? "Failed to parse LLM response";
+                        continue;
+                    }
+
+                    var returnedNoColumns = chunk.ColumnCount > 0 &&
+                        (parsed.AnalysisData?.ColumnDescriptions == null ||
+                         !parsed.AnalysisData.ColumnDescriptions.Any());
+                    if (returnedNoColumns)
+                    {
+                        lastError = "LLM response contained no column suggestions";
+                        continue;
+                    }
+
+                    return parsed;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex.Message;
+                }
+            }
+
+            var tableNames = string.Join(", ", chunk.Slices.Select(s => s.Table.DBName).Distinct());
+            return CreateErrorResult(
+                $"{chunk.Label} ({chunk.ColumnCount} columns; tables: {tableNames}) failed after {totalAttempts} attempt(s): {lastError}");
+        }
+
+        /// <summary>
+        /// Merges one chunk's parsed result into the accumulator:
+        /// - accepts only tables/columns that belong to this chunk (drops hallucinated names),
+        /// - normalizes names to the real DB casing,
+        /// - de-duplicates (first accepted suggestion wins).
+        /// Coverage is evaluated once at the end, not per chunk.
+        /// </summary>
+        private void MergeChunkResult(SchemaAnalysisChunk chunk, SchemaAnalysisData chunkData, ChunkMergeAccumulator accumulator)
+        {
+            var tablesInChunk = chunk.Slices
+                .Select(s => s.Table)
+                .GroupBy(t => t.DBName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var expectedColumns = new Dictionary<string, KeyValuePair<TableSchema, ColumnSchema>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var slice in chunk.Slices)
+            {
+                foreach (var column in slice.Columns)
+                {
+                    expectedColumns[BuildColumnKey(slice.Table.DBName, column.DBName)] =
+                        new KeyValuePair<TableSchema, ColumnSchema>(slice.Table, column);
+                }
+            }
+
+            // Tables
+            foreach (var tableDescription in chunkData.TableDescriptions ?? new List<TableDescription>())
+            {
+                if (string.IsNullOrWhiteSpace(tableDescription?.TableName))
+                {
+                    continue;
+                }
+
+                if (!tablesInChunk.TryGetValue(tableDescription.TableName.Trim(), out var table))
+                {
+                    continue;
+                }
+
+                if (accumulator.TableKeys.Add(table.DBName))
+                {
+                    accumulator.Tables.Add(new TableDescription
+                    {
+                        TableName = table.DBName,
+                        SuggestedName = tableDescription.SuggestedName,
+                        SuggestedDescription = tableDescription.SuggestedDescription
+                    });
+                }
+            }
+
+            // Columns
+            foreach (var columnDescription in chunkData.ColumnDescriptions ?? new List<ColumnDescription>())
+            {
+                if (columnDescription == null)
+                {
+                    continue;
+                }
+
+                var key = BuildColumnKey(columnDescription.TableName?.Trim(), columnDescription.ColumnName?.Trim());
+                if (!expectedColumns.TryGetValue(key, out var match))
+                {
+                    continue;
+                }
+
+                if (accumulator.ColumnKeys.Add(BuildColumnKey(match.Key.DBName, match.Value.DBName)))
+                {
+                    accumulator.Columns.Add(new ColumnDescription
+                    {
+                        TableName = match.Key.DBName,
+                        ColumnName = match.Value.DBName,
+                        SuggestedName = columnDescription.SuggestedName,
+                        SuggestedDescription = columnDescription.SuggestedDescription,
+                        IsLookupColumn = columnDescription.IsLookupColumn
+                    });
+                }
+            }
+        }
+
+        /// <summary>
+        /// Formats the items still missing after all passes, grouped per table so the
+        /// list stays readable on very large schemas.
+        /// </summary>
+        private List<string> BuildCoverageReport(List<ChunkTableSlice> missingItems)
+        {
+            var report = new List<string>();
+
+            foreach (var item in missingItems)
+            {
+                if (item.RequestTableDescription)
+                {
+                    report.Add($"{item.Table.DBName}: no table suggestion returned");
+                }
+
+                if (item.Columns.Any())
+                {
+                    report.Add($"{item.Table.DBName}: {item.Columns.Count} column(s) not analyzed " +
+                               $"({string.Join(", ", item.Columns.Select(c => c.DBName))})");
+                }
+            }
+
+            return report;
+        }
+
+        /// <summary>
+        /// Single definition of the table/column key used for matching and de-duplication.
+        /// </summary>
+        private static string BuildColumnKey(string tableName, string columnName)
+        {
+            return $"{tableName}|{columnName}";
+        }
+
+        #endregion
         #endregion
 
 
 
-
-
-        #endregion
     }
 }

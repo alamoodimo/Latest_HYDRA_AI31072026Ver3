@@ -1,5 +1,6 @@
 ﻿using DynamicDashboardCommon.Models;
 using DynamicDashboardCommon.Models.LLM;
+using DynamicDashboardCommon.Enums;        // LlmFinishReason
 using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
@@ -22,6 +23,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
         private readonly string _model;
         private readonly string _apiEndpoint;
         private readonly int _timeoutSeconds;
+        private readonly int _maxTokens;
 
         public SQLCoderLLMService(HttpClient httpClient, IConfiguration configuration)
         {
@@ -35,6 +37,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
             _model = _configuration["SQLCoder:Model"] ?? "sqlcoder-7b-2";
             _apiEndpoint = _configuration["SQLCoder:Endpoint"] ?? "https://api.friendli.ai/dedicated/v1/completions";
             _timeoutSeconds = _configuration.GetValue<int>("LlmService:Timeout", 300);
+            _maxTokens = _configuration.GetValue<int>("SQLCoder:MaxTokens", 2000);
         }
 
         /// <inheritdoc/>
@@ -319,7 +322,8 @@ Do NOT generate SQL - only explain what the chart will show.";
                     messages = messages,
                     model = _model,
                     temperature = 0.1, // Low temperature for more deterministic SQL generation
-                    max_tokens = 2000
+                                       // max_tokens = 2000
+                    max_tokens = _maxTokens
                 };
 
                 var content = new StringContent(
@@ -557,6 +561,121 @@ Do NOT generate SQL - only explain what the chart will show.";
             }
 
             return "No explicit explanation provided.";
+        }
+
+        /// <summary>
+        /// Finish-reason-aware schema analysis call for SQLCoder. Returns both content and
+        /// the normalized reason generation stopped, so the caller can detect a truncated
+        /// response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+        /// Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+        /// </summary>
+        public async Task<LlmResponse> GenerateSchemaAnalysisWithFinishReasonAsync(string prompt)
+        {
+            var systemPrompt = "You are an expert database analyst helping improve database schema usability.";
+            return await CallSQLCoderApiWithFinishReasonAsync(systemPrompt, prompt);
+        }
+
+        /// <summary>
+        /// Sends a request to SQLCoder (Friendli) and returns content plus normalized finish
+        /// reason. Uses a per-request HttpRequestMessage so shared HttpClient headers are NOT
+        /// mutated/cleared (required for safe parallel chunk calls). Assumes an OpenAI-shaped
+        /// response (choices[0]); unrecognized finish reasons map to Unknown.
+        /// </summary>
+        private async Task<LlmResponse> CallSQLCoderApiWithFinishReasonAsync(string systemPrompt, string userPrompt)
+        {
+            var messages = new List<object>
+    {
+        new { role = "system", content = systemPrompt },
+        new { role = "user", content = userPrompt }
+    };
+
+            var requestData = new
+            {
+                messages = messages,
+                model = _model,
+                temperature = 0.1,
+                max_tokens = _maxTokens
+            };
+
+            var content = new StringContent(
+                JsonSerializer.Serialize(requestData),
+                Encoding.UTF8,
+                "application/json");
+
+            using (var request = new HttpRequestMessage(HttpMethod.Post, _apiEndpoint))
+            {
+                request.Content = content;
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+
+                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_timeoutSeconds)))
+                {
+                    var response = await _httpClient.SendAsync(request, cts.Token);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        throw new Exception($"SQLCoder API error ({response.StatusCode}): {errorContent}");
+                    }
+
+                    var responseContent = await response.Content.ReadAsStringAsync();
+
+                    using (var jsonResponse = JsonDocument.Parse(responseContent))
+                    {
+                        var root = jsonResponse.RootElement;
+
+                        string messageContent = null;
+                        string rawFinishReason = null;
+
+                        if (root.TryGetProperty("choices", out var choices)
+                            && choices.ValueKind == JsonValueKind.Array
+                            && choices.GetArrayLength() > 0)
+                        {
+                            var firstChoice = choices[0];
+
+                            if (firstChoice.TryGetProperty("message", out var message)
+                                && message.TryGetProperty("content", out var contentElement))
+                            {
+                                messageContent = contentElement.GetString();
+                            }
+
+                            if (firstChoice.TryGetProperty("finish_reason", out var finishReasonElement))
+                            {
+                                rawFinishReason = finishReasonElement.GetString();
+                            }
+                        }
+
+                        return new LlmResponse
+                        {
+                            Content = messageContent,
+                            FinishReason = MapSQLCoderFinishReason(rawFinishReason)
+                        };
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Maps SQLCoder's raw finish_reason (assumed OpenAI-compatible) onto LlmFinishReason.
+        /// Unrecognized or missing values map to Unknown.
+        /// </summary>
+        private LlmFinishReason MapSQLCoderFinishReason(string rawFinishReason)
+        {
+            if (string.IsNullOrWhiteSpace(rawFinishReason))
+            {
+                return LlmFinishReason.Unknown;
+            }
+
+            switch (rawFinishReason.Trim().ToLowerInvariant())
+            {
+                case "stop":
+                    return LlmFinishReason.Stop;
+                case "length":
+                    return LlmFinishReason.Length;
+                case "content_filter":
+                    return LlmFinishReason.ContentFilter;
+                default:
+                    return LlmFinishReason.Unknown;
+            }
         }
 
         #endregion

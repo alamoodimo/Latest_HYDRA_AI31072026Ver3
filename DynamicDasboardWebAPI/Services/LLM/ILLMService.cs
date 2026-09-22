@@ -68,7 +68,17 @@ namespace DynamicDasboardWebAPI.Services.LLM
         /// <param name="prompt">The prompt containing schema and analysis instructions</param>
         /// <returns>LLM response with schema analysis</returns>
         Task<string> GenerateSchemaAnalysisAsync(string prompt);
-
+        /// <summary>
+        /// Generates schema analysis results from a database schema prompt, returning
+        /// both the generated content AND the normalized reason generation stopped.
+        /// Finish-reason-aware counterpart to GenerateSchemaAnalysisAsync(string),
+        /// kept as a separate method to preserve backward compatibility.
+        /// Chunked schema analysis uses this to detect a truncated chunk
+        /// (LlmResponse.IsTruncated) and retry or fail loudly.
+        /// </summary>
+        /// <param name="prompt">The prompt containing schema and analysis instructions.</param>
+        /// <returns>An LlmResponse carrying the content and the normalized LlmFinishReason.</returns>
+        Task<LlmResponse> GenerateSchemaAnalysisWithFinishReasonAsync(string prompt);
         // Add to DynamicDasboardWebAPI/Services/LLM/ILLMService.cs
         /// <summary>
         /// Generates term mapping suggestions for a database schema

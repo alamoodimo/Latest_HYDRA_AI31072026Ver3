@@ -1,5 +1,5 @@
 ﻿using DynamicDashboardCommon.Models;
-using DynamicDashboardCommon.Models.LLM;
+using DynamicDashboardCommon.Models.LLM;// LlmResponse (already imported)
 using Microsoft.Extensions.Configuration;
 using MySqlX.XDevAPI;
 using System;
@@ -11,6 +11,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using DynamicDashboardCommon.Enums;        // LlmFinishReason
+
 
 namespace DynamicDasboardWebAPI.Services.LLM
 {
@@ -26,6 +28,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
         private readonly string _endpointName;
         private readonly string _modelName;
         private readonly int _timeoutSeconds;
+        private readonly int _maxTokens;
 
         public DatabricksLLMService(HttpClient httpClient, IConfiguration configuration)
         {
@@ -46,6 +49,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
                 ?? "meta-llama-3-70b-instruct";
 
             _timeoutSeconds = _configuration.GetValue<int>("LlmService:Timeout", 300);
+            _maxTokens = _configuration.GetValue<int>("Databricks:MaxTokens", 7000);
         }
 
         /// <inheritdoc/>
@@ -555,11 +559,13 @@ Do NOT generate SQL - only explain what the chart will show.";
         new { role = "user", content = userPrompt }
     };
 
+
             var requestBody = new
             {
                 messages = messages,
                 model = _modelName,
-                max_tokens = 7000,
+              //  max_tokens = 7000,
+                max_tokens = _maxTokens,
                 temperature = 0.1,
                 top_p = 0.95,
                 frequency_penalty = 0.0,
@@ -821,6 +827,126 @@ Do NOT generate SQL - only explain what the chart will show.";
             }
 
             return string.Empty;
+        }
+
+        /// <summary>
+        /// Finish-reason-aware schema analysis call for Databricks. Returns both content
+        /// and the normalized reason generation stopped, so the caller can detect a
+        /// truncated response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+        /// Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+        /// </summary>
+        public async Task<LlmResponse> GenerateSchemaAnalysisWithFinishReasonAsync(string prompt)
+        {
+            var systemPrompt = "You are an expert database analyst helping improve the usability of database schemas.";
+            return await CallDatabricksApiWithFinishReasonAsync(systemPrompt, prompt);
+        }
+
+        /// <summary>
+        /// Sends a request to Databricks and returns content plus normalized finish reason.
+        /// Reuses the same per-request/timeout pattern as CallDatabricksApiAsync (already
+        /// thread-safe), and additionally extracts choices[0].finish_reason. Throws a clear
+        /// exception on non-success rather than returning a raw error body.
+        /// </summary>
+        private async Task<LlmResponse> CallDatabricksApiWithFinishReasonAsync(string systemPrompt, string userPrompt)
+        {
+            var requestUrl = $"https://{_databricksHost}/serving-endpoints/{_endpointName}/invocations";
+
+            var messages = new[]
+            {
+        new { role = "system", content = systemPrompt },
+        new { role = "user", content = userPrompt }
+    };
+
+            var requestBody = new
+            {
+                messages = messages,
+                model = _modelName,
+                max_tokens = _maxTokens,
+                temperature = 0.1,
+                top_p = 0.95,
+                frequency_penalty = 0.0,
+                presence_penalty = 0.0
+            };
+
+            var content = new StringContent(
+                JsonSerializer.Serialize(requestBody),
+                Encoding.UTF8,
+                "application/json");
+
+            using (var request = new HttpRequestMessage(HttpMethod.Post, requestUrl))
+            {
+                request.Content = content;
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiToken);
+
+                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_timeoutSeconds)))
+                {
+                    var response = await _httpClient.SendAsync(request, cts.Token);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        throw new Exception($"Databricks API error ({response.StatusCode}): {errorContent}");
+                    }
+
+                    var responseContent = await response.Content.ReadAsStringAsync();
+
+                    using (var responseJson = JsonDocument.Parse(responseContent))
+                    {
+                        var root = responseJson.RootElement;
+
+                        string messageContent = null;
+                        string rawFinishReason = null;
+
+                        if (root.TryGetProperty("choices", out var choices)
+                            && choices.ValueKind == JsonValueKind.Array
+                            && choices.GetArrayLength() > 0)
+                        {
+                            var firstChoice = choices[0];
+
+                            if (firstChoice.TryGetProperty("message", out var message)
+                                && message.TryGetProperty("content", out var contentElement))
+                            {
+                                messageContent = contentElement.GetString();
+                            }
+
+                            if (firstChoice.TryGetProperty("finish_reason", out var finishReasonElement))
+                            {
+                                rawFinishReason = finishReasonElement.GetString();
+                            }
+                        }
+
+                        return new LlmResponse
+                        {
+                            Content = messageContent,
+                            FinishReason = MapDatabricksFinishReason(rawFinishReason)
+                        };
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Maps Databricks' raw finish_reason (OpenAI-compatible) onto LlmFinishReason.
+        /// Unrecognized or missing values map to Unknown.
+        /// </summary>
+        private LlmFinishReason MapDatabricksFinishReason(string rawFinishReason)
+        {
+            if (string.IsNullOrWhiteSpace(rawFinishReason))
+            {
+                return LlmFinishReason.Unknown;
+            }
+
+            switch (rawFinishReason.Trim().ToLowerInvariant())
+            {
+                case "stop":
+                    return LlmFinishReason.Stop;
+                case "length":
+                    return LlmFinishReason.Length;
+                case "content_filter":
+                    return LlmFinishReason.ContentFilter;
+                default:
+                    return LlmFinishReason.Unknown;
+            }
         }
 
         #endregion

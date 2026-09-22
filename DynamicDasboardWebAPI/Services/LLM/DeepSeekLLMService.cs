@@ -9,6 +9,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using DynamicDashboardCommon.Enums;
+using System.Threading.Tasks;
 
 namespace DynamicDasboardWebAPI.Services.LLM
 {
@@ -42,7 +44,7 @@ namespace DynamicDasboardWebAPI.Services.LLM
             #region Claude Modification - read generation settings from config (with safe fallbacks) 28 8 2026
             // Read from LlmService:SchemaAnalysis, falling back to previous hardcoded values.
             _temperature = _configuration.GetValue<double>("LlmService:SchemaAnalysis:Temperature", 0.2);
-            _maxTokens = _configuration.GetValue<int>("LlmService:SchemaAnalysis:MaxTokens", 8000);
+            _maxTokens = _configuration.GetValue<int>("DeepSeek:MaxTokens", 8000);
             _timeoutSeconds = _configuration.GetValue<int>("LlmService:SchemaAnalysis:TimeoutSeconds", 120);
 
             // Apply the request timeout to the HttpClient (previously never set).
@@ -451,6 +453,95 @@ Do NOT generate SQL - only explain what the chart will show.";
             }
 
             return response.Trim();
+        }
+        /// <summary>
+        /// Finish-reason-aware schema analysis call. Returns both the content and the
+        /// normalized reason generation stopped, so the caller can detect a truncated
+        /// response (LlmResponse.IsTruncated) instead of parsing incomplete JSON.
+        /// Backward-compatible sibling of GenerateSchemaAnalysisAsync(string).
+        /// </summary>
+        public async Task<LlmResponse> GenerateSchemaAnalysisWithFinishReasonAsync(string prompt)
+        {
+            var systemPrompt = "You are an expert database analyst helping improve the usability of database schemas.";
+            return await CallDeepSeekApiWithFinishReasonAsync(systemPrompt, prompt);
+        }
+
+        /// <summary>
+        /// Sends a chat request to DeepSeek and returns the content together with the
+        /// normalized finish reason. Uses a per-request message so request headers are
+        /// NOT mutated on the shared HttpClient (required for safe parallel calls).
+        /// Mirrors the request/error style of CallDeepSeekApiAsync.
+        /// </summary>
+        private async Task<LlmResponse> CallDeepSeekApiWithFinishReasonAsync(string systemPrompt, string userPrompt)
+        {
+            var requestBody = new
+            {
+                model = _model,
+                messages = new[]
+                {
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userPrompt }
+        },
+                temperature = _temperature,
+                max_tokens = _maxTokens
+            };
+
+            // Per-request message: headers set here, NOT on _httpClient.DefaultRequestHeaders,
+            // so concurrent chunk calls do not race or accumulate duplicate Accept headers.
+            using (var request = new HttpRequestMessage(HttpMethod.Post, _apiEndpoint))
+            {
+                request.Content = new StringContent(
+                    JsonSerializer.Serialize(requestBody),
+                    Encoding.UTF8,
+                    "application/json");
+
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new ApplicationException($"DeepSeek API error: {response.StatusCode}");
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                var parsed = JsonSerializer.Deserialize<DeepSeekResponse>(responseContent);
+                var firstChoice = parsed?.choices != null && parsed.choices.Length > 0
+                    ? parsed.choices[0]
+                    : null;
+
+                return new LlmResponse
+                {
+                    Content = firstChoice?.message?.content,
+                    FinishReason = MapDeepSeekFinishReason(firstChoice?.finish_reason)
+                };
+            }
+        }
+
+        /// <summary>
+        /// Maps DeepSeek's raw finish_reason string onto the normalized LlmFinishReason.
+        /// Unrecognized or missing values map to Unknown.
+        /// </summary>
+        private LlmFinishReason MapDeepSeekFinishReason(string rawFinishReason)
+        {
+            if (string.IsNullOrWhiteSpace(rawFinishReason))
+            {
+                return LlmFinishReason.Unknown;
+            }
+
+            switch (rawFinishReason.Trim().ToLowerInvariant())
+            {
+                case "stop":
+                    return LlmFinishReason.Stop;
+                case "length":
+                    return LlmFinishReason.Length;
+                case "content_filter":
+                    return LlmFinishReason.ContentFilter;
+                default:
+                    return LlmFinishReason.Unknown;
+            }
         }
 
         #endregion

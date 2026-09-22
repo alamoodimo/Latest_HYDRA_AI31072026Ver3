@@ -12,6 +12,9 @@ namespace DynamicDashboardCommon.Models
     {
         [JsonPropertyName("message")]
         public Message message { get; set; }
+        // ADDED: DeepSeek reports why generation stopped here ("stop", "length", ...).
+        [JsonPropertyName("finish_reason")]
+        public string finish_reason { get; set; }
     }
 
     public class Message
