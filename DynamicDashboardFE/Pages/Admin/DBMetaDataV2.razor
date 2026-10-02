@@ -284,10 +284,374 @@
 		background: linear-gradient(135deg, #dc3545, #e83e8c);
 		color: white;
 	}
+
+	/* ============================================ */
+	/* PAGE HEADER (dbm-*)                          */
+	/* Scoped class names avoid clashes with the    */
+	/* global theme's .btn styles.                  */
+	/* ============================================ */
+	.dbm-header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem 1.5rem;
+		padding: 1.25rem 1.5rem;
+		background: linear-gradient(135deg, #ffffff 0%, #f5f7ff 100%);
+		border: 1px solid rgba(102, 126, 234, 0.15);
+		border-radius: 18px;
+		box-shadow: 0 8px 30px rgba(31, 41, 90, 0.06);
+		position: relative;
+		animation: dbmSlideDown 0.45s ease-out;
+	}
+
+		/* Animated accent line (no overflow:hidden, so the dropdown menu is not clipped) */
+		.dbm-header::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			height: 3px;
+			border-radius: 18px 18px 0 0;
+			background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+			background-size: 200% 100%;
+			animation: shimmer 3s linear infinite;
+		}
+
+	.dbm-header-info {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		min-width: 0;
+		flex: 1 1 360px;
+	}
+
+	.dbm-header-icon {
+		width: 52px;
+		height: 52px;
+		flex-shrink: 0;
+		border-radius: 14px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.4rem;
+		color: #fff;
+		background: linear-gradient(135deg, #667eea, #764ba2);
+		box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35);
+		animation: dbmFloat 4s ease-in-out infinite;
+	}
+
+	.dbm-header-text {
+		min-width: 0;
+	}
+
+	.dbm-title-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.5rem 0.75rem;
+	}
+
+	.dbm-title {
+		font-weight: 700;
+		font-size: 1.5rem;
+		color: #1f2a44;
+		white-space: nowrap;
+	}
+
+	.dbm-db-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		max-width: 320px;
+		padding: 0.3rem 0.85rem;
+		border-radius: 999px;
+		background: rgba(102, 126, 234, 0.12);
+		color: #4c51bf;
+		font-weight: 600;
+		font-size: 0.95rem;
+	}
+
+	.dbm-db-chip-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.dbm-db-chip-dot {
+		font-size: 0.5rem;
+		color: #48bb78;
+		animation: dbmPulse 2s ease-in-out infinite;
+	}
+
+	.dbm-subtitle {
+		margin-top: 0.3rem;
+		max-width: 640px;
+		color: #6b7280;
+		font-size: 0.9rem;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.dbm-header-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.75rem;
+		flex: 1 1 auto;
+	}
+
+	.dbm-actions-group {
+		display: inline-flex;
+		gap: 0.5rem;
+	}
+
+	/* Buttons */
+	.dbm-header .dbm-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 42px;
+		padding: 0 1rem;
+		border-radius: 12px;
+		border: 1px solid transparent;
+		font-weight: 600;
+		font-size: 0.9rem;
+		line-height: 1;
+		white-space: nowrap;
+		cursor: pointer;
+		transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+	}
+
+		.dbm-header .dbm-btn:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
+			transform: none;
+			box-shadow: none;
+		}
+
+	.dbm-header .dbm-btn-text {
+		display: inline-block;
+		max-width: 180px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.dbm-header .dbm-btn-primary {
+		position: relative;
+		overflow: hidden;
+		color: #fff;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		box-shadow: 0 6px 18px rgba(102, 126, 234, 0.35);
+	}
+
+		.dbm-header .dbm-btn-primary::after {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -120%;
+			width: 60%;
+			height: 100%;
+			background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+			transition: left 0.6s ease;
+		}
+
+		.dbm-header .dbm-btn-primary:not(:disabled):hover {
+			transform: translateY(-2px);
+			box-shadow: 0 10px 24px rgba(102, 126, 234, 0.45);
+		}
+
+			.dbm-header .dbm-btn-primary:not(:disabled):hover::after {
+				left: 130%;
+			}
+
+	.dbm-header .dbm-btn-ghost {
+		color: #4c51bf;
+		background: #fff;
+		border-color: rgba(102, 126, 234, 0.35);
+	}
+
+		.dbm-header .dbm-btn-ghost:not(:disabled):hover {
+			background: rgba(102, 126, 234, 0.08);
+			transform: translateY(-1px);
+		}
+
+	/* Phase stepper */
+	.dbm-stepper {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.3rem;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 14px;
+	}
+
+	.dbm-header .dbm-step {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		height: 40px;
+		padding: 0 0.8rem 0 0.4rem;
+		border: none;
+		border-radius: 10px;
+		background: transparent;
+		color: #374151;
+		white-space: nowrap;
+		cursor: pointer;
+		transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+	}
+
+		.dbm-header .dbm-step:not(:disabled):hover {
+			background: rgba(102, 126, 234, 0.08);
+			transform: translateY(-1px);
+		}
+
+		.dbm-header .dbm-step:disabled {
+			cursor: not-allowed;
+		}
+
+		.dbm-header .dbm-step.is-locked {
+			opacity: 0.55;
+		}
+
+	.dbm-step-badge {
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 700;
+		font-size: 0.8rem;
+		background: #e5e7eb;
+		color: #6b7280;
+		transition: all 0.3s ease;
+	}
+
+	.dbm-step.is-current .dbm-step-badge {
+		color: #fff;
+		background: linear-gradient(135deg, #667eea, #764ba2);
+		animation: dbmPulseRing 2s ease-out infinite;
+	}
+
+	.dbm-step.is-done .dbm-step-badge {
+		color: #fff;
+		background: linear-gradient(135deg, #48bb78, #38a169);
+	}
+
+	.dbm-step-label {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		line-height: 1.15;
+	}
+
+	.dbm-step-title {
+		font-weight: 600;
+		font-size: 0.85rem;
+	}
+
+	.dbm-step-meta {
+		font-size: 0.72rem;
+		color: #6b7280;
+	}
+
+	.dbm-step-connector {
+		width: 18px;
+		height: 2px;
+		border-radius: 2px;
+		background: #e5e7eb;
+		transition: background 0.3s ease;
+	}
+
+		.dbm-step-connector.is-done {
+			background: linear-gradient(90deg, #48bb78, #667eea);
+		}
+
+	/* Animations */
+	@@keyframes dbmSlideDown {
+		from {
+			opacity: 0;
+			transform: translateY(-8px);
+		}
+
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	@@keyframes dbmFloat {
+		0%, 100% {
+			transform: translateY(0);
+		}
+
+		50% {
+			transform: translateY(-3px);
+		}
+	}
+
+	@@keyframes dbmPulse {
+		0%, 100% {
+			opacity: 1;
+		}
+
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	@@keyframes dbmPulseRing {
+		0% {
+			box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.45);
+		}
+
+		70% {
+			box-shadow: 0 0 0 8px rgba(102, 126, 234, 0);
+		}
+
+		100% {
+			box-shadow: 0 0 0 0 rgba(102, 126, 234, 0);
+		}
+	}
+
+	/* Small screens: stepper scrolls instead of squeezing */
+	@@media (max-width: 767.98px) {
+		.dbm-title {
+			font-size: 1.25rem;
+		}
+
+		.dbm-stepper {
+			max-width: 100%;
+			overflow-x: auto;
+		}
+
+		.dbm-header .dbm-step-meta {
+			display: none;
+		}
+	}
+
+	/* Respect users who prefer less motion */
+	@@media (prefers-reduced-motion: reduce) {
+		.dbm-header,
+		.dbm-header * {
+			animation: none !important;
+			transition: none !important;
+		}
+	}
 </style>
 
 <div class="container-fluid py-0">
 	<!-- Enhanced Header with Database Selection -->
+
+@* 	Old Header efore claude 23 9 2026
 	<div class="row mb-4 align-items-center">
 		<div class="col-md-6">
 			<div class="d-flex align-items-center">
@@ -424,6 +788,167 @@
 				</div>
 			</div>
 		</div>
+	</div> *@
+	<!-- ============================================ -->
+	<!-- PAGE HEADER: info (left) + actions (right).   -->
+	<!-- Wraps to a second line instead of overlapping. -->
+	<!-- ============================================ -->
+	<div class="dbm-header mb-4">
+		<div class="dbm-header-info">
+			<div class="dbm-header-icon">
+				<i class="fas fa-database"></i>
+			</div>
+			<div class="dbm-header-text">
+				<div class="dbm-title-row">
+					<h3 class="dbm-title mb-0">Database Structure</h3>
+					@if (!string.IsNullOrEmpty(selectedDatabase?.FriendlyName))
+					{
+						<span class="dbm-db-chip" title="@selectedDatabase.FriendlyName">
+							<i class="fas fa-circle dbm-db-chip-dot"></i>
+							<span class="dbm-db-chip-text">@selectedDatabase.FriendlyName</span>
+						</span>
+					}
+				</div>
+				@if (!string.IsNullOrEmpty(selectedDatabase?.Description))
+				{
+					<p class="dbm-subtitle mb-0" title="@selectedDatabase.Description">@selectedDatabase.Description</p>
+				}
+			</div>
+		</div>
+
+		<div class="dbm-header-actions">
+			<!-- Database switcher -->
+			<div class="dropdown">
+				<button class="dbm-btn dbm-btn-ghost dropdown-toggle" type="button" id="databaseDropdown"
+						data-bs-toggle="dropdown" aria-expanded="false">
+					<i class="fas fa-database"></i>
+					<span class="dbm-btn-text">@(selectedDatabase?.Name ?? "Select Database")</span>
+				</button>
+				<ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="databaseDropdown" style="max-height: 300px; overflow-y: auto;">
+					@if (databases?.Any() == true)
+					{
+						@foreach (var db in databases)
+						{
+							<li>
+								<a class="dropdown-item @(selectedDatabase?.DatabaseID == db.DatabaseID ? "active" : "")"
+								   href="/admin/database-metadata/@db.DatabaseID">
+									<div class="d-flex align-items-center">
+										<span class="me-2">@db.Name</span>
+										@if (!string.IsNullOrEmpty(db.FriendlyName) && db.FriendlyName != db.Name)
+										{
+											<span class="text-muted small">(@db.FriendlyName)</span>
+										}
+									</div>
+								</a>
+							</li>
+						}
+					}
+					else
+					{
+						<li><span class="dropdown-item disabled">No databases available</span></li>
+					}
+				</ul>
+			</div>
+
+			<!-- Phased analysis stepper: 1 Tables -> 2 Columns -> 3 Relationships -->
+			<div class="dbm-stepper" role="group" aria-label="Phased analysis">
+				<button class="dbm-step @(tablePhaseCompleted ? "is-done" : "is-current")"
+						@onclick='() => RunTableAnalysis()'
+						disabled="@(isAnalyzingTables)"
+						title="Analyze table names and descriptions">
+					<span class="dbm-step-badge">
+						@if (isAnalyzingTables)
+						{
+							<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+						}
+						else if (tablePhaseCompleted)
+						{
+							<i class="fas fa-check"></i>
+						}
+						else
+						{
+							<span>1</span>
+						}
+					</span>
+					<span class="dbm-step-label">
+						<span class="dbm-step-title">Tables</span>
+						<span class="dbm-step-meta">@(analysisStatus != null ? $"{analysisStatus.TablesAnalyzed}/{analysisStatus.TotalTables}" : "Analyze")</span>
+					</span>
+				</button>
+
+				<span class="dbm-step-connector @(tablePhaseCompleted ? "is-done" : "")"></span>
+
+				<button class="dbm-step @(columnPhaseCompleted ? "is-done" : (tablePhaseCompleted ? "is-current" : "is-locked"))"
+						@onclick='() => RunColumnAnalysis()'
+						disabled="@(!tablePhaseCompleted || isAnalyzingColumns)"
+						title="Analyze column names, descriptions and lookups">
+					<span class="dbm-step-badge">
+						@if (isAnalyzingColumns)
+						{
+							<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+						}
+						else if (columnPhaseCompleted)
+						{
+							<i class="fas fa-check"></i>
+						}
+						else
+						{
+							<span>2</span>
+						}
+					</span>
+					<span class="dbm-step-label">
+						<span class="dbm-step-title">Columns</span>
+						<span class="dbm-step-meta">@(analysisStatus != null ? $"{analysisStatus.ColumnsAnalyzed}/{analysisStatus.TotalColumns}" : "Analyze")</span>
+					</span>
+				</button>
+
+				<span class="dbm-step-connector @(columnPhaseCompleted ? "is-done" : "")"></span>
+
+				<button class="dbm-step @(relationshipPhaseCompleted ? "is-done" : (columnPhaseCompleted ? "is-current" : "is-locked"))"
+						@onclick="RunRelationshipAnalysis"
+						disabled="@(!columnPhaseCompleted || isAnalyzingRelationships)"
+						title="Detect relationships between tables">
+					<span class="dbm-step-badge">
+						@if (isAnalyzingRelationships)
+						{
+							<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+						}
+						else if (relationshipPhaseCompleted)
+						{
+							<i class="fas fa-check"></i>
+						}
+						else
+						{
+							<span>3</span>
+						}
+					</span>
+					<span class="dbm-step-label">
+						<span class="dbm-step-title">Relationships</span>
+						<span class="dbm-step-meta">@(relationshipPhaseCompleted ? $"{analysisStatus?.RelationshipsFound ?? 0} found" : "Find")</span>
+					</span>
+				</button>
+			</div>
+
+			<!-- Primary actions -->
+			<div class="dbm-actions-group">
+				<button class="dbm-btn dbm-btn-primary" @onclick="RunSchemaAnalysis" disabled="@(isLoading || isAnalyzing)">
+					@if (isAnalyzing)
+					{
+						<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+						<span>Analyzing...</span>
+					}
+					else
+					{
+						<i class="fas fa-magic"></i>
+						<span>Analyze Schema</span>
+					}
+				</button>
+				<button class="dbm-btn dbm-btn-ghost" @onclick="RefreshSchema" disabled="@(isLoading)" title="Reload schema from the database">
+					<i class="fas fa-sync-alt @(isLoading ? "fa-spin" : "")"></i>
+					<span class="dbm-btn-text">Refresh</span>
+				</button>
+			</div>
+		</div>
 	</div>
 
 	@if (isLoading)
@@ -496,7 +1021,9 @@
 								</button>
 							}
 						</div>
-						<div class="list-group list-group-flush" style="overflow-y: auto;">
+
+@* 						<div class="list-group list-group-flush" style="overflow-y: auto;"> *@
+						<div class="list-group list-group-flush" style="overflow-y: auto; max-height: 55vh;">
 							@if (schemaObj?.Tables?.Any() == true)
 							{
 								@foreach (var table in FilteredTables)

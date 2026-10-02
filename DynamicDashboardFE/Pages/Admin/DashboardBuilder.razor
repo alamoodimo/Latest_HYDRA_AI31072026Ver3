@@ -8,6 +8,10 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject IToastService ToastService
+@inject IConfiguration Configuration
+@using Microsoft.Extensions.Configuration
+@using DynamicDashboardCommon.Helper
+@implements IAsyncDisposable
 
 <PageTitle>Dashboard Builder</PageTitle>
 
@@ -18,7 +22,167 @@
     <!-- ============================================ -->
     <!-- HEADER SECTION -->
     <!-- ============================================ -->
-    <div class="builder-header">
+     <!-- ================New Header Claude 25 9 2026============================ -->
+    <!-- ============================================ -->
+    <!-- HEADER: two rows so controls never overlap    -->
+    <!-- Row 1: identity + primary actions             -->
+    <!-- Row 2: tool strip (data/view, zoom, grid,     -->
+    <!--        layout). bh-* classes avoid the global -->
+    <!--        .btn padding/margin from app.css.      -->
+    <!-- ============================================ -->
+    <div class="builder-header bh-header">
+        <div class="bh-row bh-row-main">
+            <div class="bh-identity">
+                <div class="bh-identity-icon">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <div class="bh-identity-text">
+                    <div class="bh-title-line">
+                        <h5 class="bh-title" title="@(dashboard?.Title ?? "Untitled Dashboard")">@(dashboard?.Title ?? "Untitled Dashboard")</h5>
+                        @if (dashboard != null)
+                        {
+                            @if (dashboard.DashboardID > 0 && !hasUnsavedChanges)
+                            {
+                                <span class="bh-status bh-status-saved">
+                                    <i class="fas fa-check-circle"></i>Saved
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="bh-status bh-status-unsaved">
+                                    <i class="fas fa-circle"></i>Unsaved
+                                </span>
+                            }
+                        }
+                    </div>
+                    <button type="button"
+                            class="bh-db-chip @(dashboard?.DatabaseID > 0 ? "" : "is-missing")"
+                            @onclick="ShowDashboardSettings"
+                            title="Change dashboard title, description and database">
+                        <i class="fas fa-database"></i>
+                        <span class="bh-db-chip-text">@GetDashboardDatabaseName()</span>
+                        <i class="fas fa-pen bh-db-chip-edit"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bh-primary-actions">
+                <button type="button" class="bh-btn bh-btn-ai" @onclick="ShowTemplateModal"
+                        title="Generate a complete dashboard from a template">
+                    <i class="fas fa-magic bh-sparkle"></i>
+                    <span class="bh-btn-text">AI Generate Dashboard</span>
+                </button>
+                <button type="button" class="bh-btn bh-btn-light" @onclick="ShowAddComponentModal"
+                        title="@(dashboard?.DatabaseID > 0 ? "Describe a component and let AI build it" : "Choose a database first")">
+                    <i class="fas fa-robot"></i>
+                    <span class="bh-btn-text">AI Create Component</span>
+                </button>
+                <span class="bh-divider" aria-hidden="true"></span>
+                <button type="button" class="bh-btn bh-btn-save" @onclick="SaveDashboard" disabled="@(!CanSave())"
+                        title="@(CanSave() ? "Save dashboard (Ctrl+S)" : "Add a title and choose a database to save")">
+                    <i class="fas fa-save"></i>
+                    <span class="bh-btn-text">Save</span>
+                </button>
+                <button type="button" class="bh-icon-btn bh-icon-btn-danger" @onclick="CloseDashboard" title="Close Dashboard Builder">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+
+        @if (dashboard != null)
+        {
+            var hasComponents = dashboard.Components != null && dashboard.Components.Any();
+
+            <div class="bh-row bh-row-tools">
+                <!-- Data & view -->
+                <div class="bh-tool-group" role="group" aria-label="Data and view">
+                    @if (hasComponents && dashboard.DatabaseID > 0)
+                    {
+                        <button type="button" class="bh-tool" @onclick="LoadAllComponentsData" disabled="@isLoadingAllData"
+                                title="Load data for all components">
+                            @if (isLoadingAllData)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="bh-btn-text">Loading...</span>
+                            }
+                            else
+                            {
+                                <i class="fas fa-play"></i>
+                                <span class="bh-btn-text">Load Data</span>
+                            }
+                        </button>
+                    }
+                    <button type="button" class="bh-tool @(isPreviewMode ? "is-active" : "")" @onclick="TogglePreviewMode"
+                            disabled="@(!hasComponents)"
+                            title="@(isPreviewMode ? "Switch to Design Mode" : "Preview Dashboard")">
+                        <i class="fas fa-@(isPreviewMode ? "edit" : "eye")"></i>
+                        <span class="bh-btn-text">@(isPreviewMode ? "Design" : "Preview")</span>
+                    </button>
+                </div>
+
+                @if (!isPreviewMode)
+                {
+                    <!-- Zoom -->
+                    <div class="bh-tool-group" role="group" aria-label="Zoom">
+                        <button type="button" class="bh-tool bh-tool-icon" @onclick="ZoomOut" disabled="@(zoomLevel <= 0.5)" title="Zoom Out">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <span class="bh-zoom-value" title="Current Zoom Level">@((int)Math.Round(zoomLevel * 100))%</span>
+                        <button type="button" class="bh-tool bh-tool-icon" @onclick="ZoomIn" disabled="@(zoomLevel >= 1.5)" title="Zoom In">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button type="button" class="bh-tool bh-tool-icon" @onclick="ResetZoom" title="Reset Zoom to 100%">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </button>
+                    </div>
+
+                    <!-- Grid -->
+                    <div class="bh-tool-group" role="group" aria-label="Grid">
+                        <button type="button" class="bh-tool bh-tool-icon @(showGridLines ? "is-active" : "")" @onclick="ToggleGridLines"
+                                title="@(showGridLines ? "Hide Grid Lines" : "Show Grid Lines")">
+                            <i class="fas fa-th"></i>
+                        </button>
+                        <div class="dropdown">
+                            <button type="button" class="bh-tool dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Grid Snap Settings">
+                                <i class="fas fa-magnet"></i>
+                                <span class="bh-btn-text">@(gridSnapSize == 1 ? "No snap" : $"Snap {gridSnapSize}×")</span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end bh-dropdown">
+                                <li><button type="button" class="dropdown-item @(gridSnapSize == 1 ? "active" : "")" @onclick="() => SetGridSnapSize(1)">No Snap</button></li>
+                                <li><button type="button" class="dropdown-item @(gridSnapSize == 2 ? "active" : "")" @onclick="() => SetGridSnapSize(2)">2× Grid</button></li>
+                                <li><button type="button" class="dropdown-item @(gridSnapSize == 3 ? "active" : "")" @onclick="() => SetGridSnapSize(3)">3× Grid</button></li>
+                            </ul>
+                        </div>
+                    </div>
+                }
+
+                <!-- Layout & help (pushed to the right) -->
+                <div class="bh-tool-group bh-tool-group-end" role="group" aria-label="Layout and help">
+                    @if (!isPreviewMode)
+                    {
+                        <button type="button" class="bh-tool" @onclick="ToggleSidebar" title="@(showSidebar ? "Hide Components Panel" : "Show Components Panel")">
+                            <i class="fas fa-@(showSidebar ? "chevron-left" : "chevron-right")"></i>
+                            <span class="bh-btn-text">@(showSidebar ? "Hide Panel" : "Components")</span>
+                        </button>
+                        @if (hasComponents)
+                        {
+                            <button type="button" class="bh-tool bh-tool-icon" @onclick="AutoArrangeComponents" title="Auto Arrange Components">
+                                <i class="fas fa-border-all"></i>
+                            </button>
+                        }
+                    }
+                    <button type="button" class="bh-tool bh-tool-icon" @onclick="ShowDashboardSettings" title="Dashboard Settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <button type="button" class="bh-tool bh-tool-icon" @onclick="ShowKeyboardShortcuts" title="Keyboard Shortcuts">
+                        <i class="fas fa-keyboard"></i>
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+    <!-- =====================Old header before claude======================= -->
+@*     <div class="builder-header">
         <div class="builder-header-left">
             <!-- Dashboard Title and AI Buttons -->
             <div class="dashboard-title-section">
@@ -172,7 +336,7 @@
                 </div>
             }
         </div>
-    </div>
+    </div> *@
 
     <!-- ============================================ -->
     <!-- MAIN CONTENT -->
@@ -202,92 +366,13 @@
                 <div class="preview-grid" style="grid-template-rows: repeat(@GetGridHeight(), 100px);">
                     @foreach (var component in dashboard.Components.Where(c => c.IsVisible))
                     {
-                        <div class="dashboard-component"
+                        <div class="dashboard-component" @key="component.ComponentID"
                              style="grid-column: @(component.GridX + 1) / span @component.GridWidth;
                                             grid-row: @(component.GridY + 1) / span @component.GridHeight;">
                             <div class="component-header">
-                                <span class="component-title">@component.Title</span>
+                                <span class="component-title" title="@component.Title">@component.Title</span>
                             </div>
-                            <div class="component-body">
-                                @if (IsComponentLoading(component.ComponentID))
-                                {
-                                    <div class="component-loading">
-                                        <div class="spinner-border text-primary mb-2"></div>
-                                        <p class="text-muted small mb-0">Loading data...</p>
-                                    </div>
-                                }
-                                else if (componentData.ContainsKey(component.ComponentID) && componentData[component.ComponentID].Any())
-                                {
-                                    @switch (component.DataViewingTypeID)
-                                    {
-                                        case 1: // Table
-                                            var tableData = GetComponentData(component.ComponentID);
-                                            var columns = tableData.First().Keys.ToList();
-                                            <div class="table-responsive" style="max-height: 100%; overflow: auto;">
-                                                <table class="table table-sm table-hover mb-0">
-                                                    <thead class="sticky-top bg-light">
-                                                        <tr>
-                                                            @foreach (var col in columns.Take(6))
-                                                            {
-                                                                <th style="font-size: 17px;">@col</th>
-                                                            }
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        @foreach (var row in tableData)
-                                                        {
-                                                            <tr>
-                                                                @foreach (var col in columns.Take(6))
-                                                                {
-                                                                    <td style="font-size: 17px;">@(row[col]?.ToString() ?? "-")</td>
-                                                                }
-                                                            </tr>
-                                                        }
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                            break;
-
-                                        case 3: // KPI
-                                            var kpiData = GetComponentData(component.ComponentID);
-                                            var kpiValue = kpiData.FirstOrDefault()?.Values.FirstOrDefault();
-                                            <div class="kpi-display">
-                                                <div class="kpi-value">@FormatNumber(kpiValue)</div>
-                                                <div class="kpi-label">@component.Title</div>
-                                            </div>
-                                            break;
-
-                                        case 4: // Chart
-                                                <div id="chart-@component.ComponentID" style="height: 100%; min-height: 200px;"></div>
-                                            break;
-
-                                        case 2: // Label
-                                                <div class="label-display text-center p-3">
-                                                    <h5>@component.Title</h5>
-                                                @if (!string.IsNullOrEmpty(component.Description))
-                                                {
-                                                    <p class="text-muted mb-0">@component.Description</p>
-                                                }
-                                            </div>
-                                            break;
-
-                                        default:
-                                            <div class="text-center text-muted p-3">
-                                                <i class="fas fa-cube fa-2x mb-2"></i>
-                                                <p class="mb-0">Component</p>
-                                            </div>
-                                            break;
-                                    }
-                                }
-                                else
-                                {
-                                    <div class="component-placeholder">
-                                        <i class="fas @GetComponentIcon(component.DataViewingTypeID) fa-3x mb-3 text-muted"></i>
-                                        <p class="text-muted mb-1 fw-bold">@GetComponentTypeName(component.DataViewingTypeID)</p>
-                                        <small class="text-muted">Configure SQL in properties panel</small>
-                                    </div>
-                                }
-                            </div>
+                            @RenderComponentBody(component)
                         </div>
                     }
                 </div>
@@ -433,12 +518,13 @@
                         <!-- Drop Indicator -->
                         @if (showDropIndicator && isDragging)
                         {
-                            <div class="drop-indicator"
-                                 style="grid-column: @(dropIndicatorX + 1) / span @dropIndicatorWidth;
-                                                grid-row: @(dropIndicatorY + 1) / span @dropIndicatorHeight;">
-                                <div class="drop-indicator-inner">
-                                    <i class="fas fa-plus-circle"></i>
-                                    <span>Drop Here</span>
+                            <!-- Positioned in px from the grid cell (the indicator sits outside the grid,
+                                 so grid-column/grid-row had no effect and it always showed at the top-left). -->
+                            <div class="drop-indicator @(dropIndicatorCanPlace ? "can-drop" : "cannot-drop")"
+                                 style="@GetDropIndicatorStyle()">
+                                <div class="drop-indicator-inner @(dropIndicatorCanPlace ? "can-drop" : "cannot-drop")">
+                                    <i class="fas @(dropIndicatorCanPlace ? "fa-plus-circle" : "fa-ban")"></i>
+                                    <span>@(dropIndicatorCanPlace ? "Drop Here" : "Space occupied")</span>
                                 </div>
                             </div>
                         }
@@ -463,10 +549,12 @@
                                 @foreach (var component in dashboard.Components)
                                 {
                                     <div class="dashboard-component @(selectedComponentId == component.ComponentID ? "selected" : "") @(draggedExistingComponentId == component.ComponentID ? "is-dragging" : "")"
+                                         @key="component.ComponentID"
                                          style="grid-column: @(component.GridX + 1) / span @component.GridWidth;
                                                             grid-row: @(component.GridY + 1) / span @component.GridHeight;"
-                                         draggable="true"
+                                         draggable="@(isResizing ? "false" : "true")"
                                          @ondragstart="(e) => OnDragStartExisting(e, component)"
+                                         @ondragstart:preventDefault="isResizing"
                                          @ondragend="OnDragEnd"
                                          @onclick="() => SelectComponent(component.ComponentID)"
                                          @onclick:stopPropagation="true">
@@ -475,7 +563,7 @@
                                             <div class="component-drag-handle" title="Drag to move">
                                                 <i class="fas fa-grip-vertical"></i>
                                             </div>
-                                            <span class="component-title">@component.Title</span>
+                                            <span class="component-title" title="@component.Title">@component.Title</span>
                                             <div class="component-actions">
                                                 @if (isRegenerating.ContainsKey(component.ComponentID) && isRegenerating[component.ComponentID])
                                                 {
@@ -485,11 +573,11 @@
                                                 }
                                                 else
                                                 {
-                                                    <button class="btn btn-sm btn-link" title="Regenerate with AI"
-                                                            @onclick="() => RegenerateComponent(component)"
+                                                    <button class="btn btn-sm btn-link" title="Replace with a different AI-generated component"
+                                                            @onclick="() => RegenerateComponent(component, ComponentRegenerationMode.Alternative)"
                                                             @onclick:stopPropagation="true"
                                                             disabled="@(dashboard.DatabaseID <= 0)">
-                                                        <i class="fas fa-magic"></i>
+                                                        <i class="fas fa-random"></i>
                                                     </button>
                                                 }
                                                 <button class="btn btn-sm btn-link" @onclick="() => LoadComponentDataAsync(component)" @onclick:stopPropagation="true" title="Refresh Data">
@@ -504,118 +592,20 @@
                                             </div>
                                         </div>
 
-                                        <div class="component-body">
-                                            @if (IsComponentLoading(component.ComponentID))
-                                            {
-                                                <div class="component-loading">
-                                                    <div class="spinner-border text-primary mb-2"></div>
-                                                    <p class="text-muted small mb-0">Loading data...</p>
-                                                </div>
-                                            }
-                                            else if (componentData.ContainsKey(component.ComponentID) && componentData[component.ComponentID].Any())
-                                            {
-                                                @switch (component.DataViewingTypeID)
-                                                {
-                                                    case 1: // Table
-                                                        var tableData = GetComponentData(component.ComponentID);
-                                                        var columns = tableData.First().Keys.ToList();
-                                                        <div class="table-responsive" style="max-height: 100%; overflow: auto;">
-                                                            <table class="table table-sm table-hover mb-0">
-                                                                <thead class="sticky-top bg-light">
-                                                                    <tr>
-                                                                        @foreach (var col in columns.Take(6))
-                                                                        {
-                                                                            <th style="font-size: 17px;">@col</th>
-                                                                        }
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    @foreach (var row in tableData)
-                                                                    {
-                                                                        <tr>
-                                                                            @foreach (var col in columns.Take(6))
-                                                                            {
-                                                                                <td style="font-size: 17px;">@(row[col]?.ToString() ?? "-")</td>
-                                                                            }
-                                                                        </tr>
-                                                                    }
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                        break;
-
-                                                    case 3: // KPI
-                                                        var kpiData = GetComponentData(component.ComponentID);
-                                                        var kpiValue = kpiData.FirstOrDefault()?.Values.FirstOrDefault();
-                                                        <div class="kpi-display">
-                                                            <div class="kpi-value">@FormatNumber(kpiValue)</div>
-                                                            <div class="kpi-label">@component.Title</div>
-                                                            @if (!string.IsNullOrEmpty(component.Description))
-                                                            {
-                                                                <div class="kpi-description">@component.Description</div>
-                                                            }
-                                                        </div>
-                                                        break;
-
-                                                    case 4: // Chart
-                                                            <div id="chart-@component.ComponentID" style="height: 100%; min-height: 200px;"></div>
-                                                        break;
-
-                                                    case 2: // Label
-                                                            <div class="label-display text-center p-3">
-                                                                <h5>@component.Title</h5>
-                                                            @if (!string.IsNullOrEmpty(component.Description))
-                                                            {
-                                                                <p class="text-muted mb-0">@component.Description</p>
-                                                            }
-                                                        </div>
-                                                        break;
-
-                                                    default:
-                                                        <div class="text-center text-muted p-3">
-                                                            <i class="fas fa-cube fa-2x mb-2"></i>
-                                                            <p class="mb-0">Component</p>
-                                                        </div>
-                                                        break;
-                                                }
-                                            }
-                                            else
-                                            {
-                                                <div class="component-placeholder">
-                                                    <i class="fas @GetComponentIcon(component.DataViewingTypeID) fa-3x mb-3 text-muted"></i>
-                                                    <p class="text-muted mb-1 fw-bold">@GetComponentTypeName(component.DataViewingTypeID)</p>
-                                                    <small class="text-muted">Configure SQL in properties panel</small>
-                                                </div>
-                                            }
-                                        </div>
+                                        @RenderComponentBody(component)
 
                                         @if (selectedComponentId == component.ComponentID)
                                         {
-                                            <div class="resize-handle resize-handle-se" title="Drag to resize"></div>
-                                            <div class="resize-handle resize-handle-n"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "n")'
-                                                 title="Resize North"></div>
-                                            <div class="resize-handle resize-handle-s"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "s")'
-                                                 title="Resize South"></div>
-                                            <div class="resize-handle resize-handle-e"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "e")'
-                                                 title="Resize East"></div>
-                                            <div class="resize-handle resize-handle-w"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "w")'
-                                                 title="Resize West"></div>
-                                            <div class="resize-handle resize-handle-ne"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "ne")'
-                                                 title="Resize North-East"></div>
-                                            <div class="resize-handle resize-handle-nw"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "nw")'
-                                                 title="Resize North-West"></div>
-                                            <div class="resize-handle resize-handle-se"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "se")'
-                                                 title="Resize South-East"></div>
-                                            <div class="resize-handle resize-handle-sw"
-                                                 @onmousedown='(e) => StartResize(e, component.ComponentID, "sw")'
-                                                 title="Resize South-West"></div>
+                                            @* preventDefault stops the browser from starting a component drag
+                                               (the card is draggable) when a resize handle is pressed. *@
+                                            @foreach (var handle in ResizeHandles)
+                                            {
+                                                <div class="resize-handle resize-handle-@handle.Direction"
+                                                     @onmousedown="(e) => StartResize(e, component.ComponentID, handle.Direction)"
+                                                     @onmousedown:preventDefault="true"
+                                                     @onmousedown:stopPropagation="true"
+                                                     title="@handle.Title"></div>
+                                            }
                                         }
                                     </div>
                                 }
@@ -629,10 +619,21 @@
                                         <h5>Drag Components Here</h5>
                                         <p class="text-muted">Drag components from the left panel or use AI to generate a dashboard</p>
                                         <div class="d-flex gap-2 justify-content-center mt-3">
+    <button class="btn btn-success" @onclick="ShowTemplateModal">
+        <i class="fas fa-magic me-2"></i>AI Generate
+    </button>
+    @if (dashboard.DatabaseID <= 0)
+    {
+        <button class="btn btn-outline-primary" @onclick="ShowDashboardSettings">
+            <i class="fas fa-database me-2"></i>Choose Database
+        </button>
+    }
+</div>
+@*            Old before claude 25 9 2026                             <div class="d-flex gap-2 justify-content-center mt-3">
                                             <button class="btn btn-success" @onclick="ShowTemplateModal" disabled="@(dashboard.DatabaseID <= 0)">
                                                 <i class="fas fa-magic me-2"></i>AI Generate
                                             </button>
-                                        </div>
+                                        </div> *@
                                     </div>
                                 </div>
                             }
@@ -1222,7 +1223,89 @@
     </div>
 </div>
 <div class="modal-backdrop fade @(showKeyboardShortcutsModal ? "show" : "")"
-     style="display: @(showKeyboardShortcutsModal ? "block" : "none")"></div>
+ style="display: @(showKeyboardShortcutsModal ? "block" : "none")"></div>
+<!-- ============================================ -->
+<!-- DASHBOARD SETTINGS MODAL   claude 25 9 2026                   -->
+<!-- Title, description, database and category.    -->
+<!-- Values are applied only when "Apply" is used. -->
+<!-- ============================================ -->
+<div class="modal fade @(showSettingsModal ? "show" : "")" tabindex="-1"
+     style="display: @(showSettingsModal ? "block" : "none")">
+    <div class="modal-dialog modal-dialog-centered bh-settings-dialog">
+        <div class="modal-content bh-settings">
+            <div class="modal-header bh-settings-header">
+                <div class="d-flex align-items-center">
+                    <div class="bh-settings-icon"><i class="fas fa-sliders-h"></i></div>
+                    <div>
+                        <h5 class="mb-0 fw-bold text-white">Dashboard Settings</h5>
+                        <small class="bh-settings-subtitle">Name your dashboard and choose its data source</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseSettingsModal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold" for="settingsTitle">
+                        <i class="fas fa-heading me-2 text-primary"></i>Title <span class="text-danger">*</span>
+                    </label>
+                    <input id="settingsTitle" type="text" class="form-control" maxlength="200"
+                           @bind="settingsTitle" @bind:event="oninput" placeholder="e.g. Sales Overview" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold" for="settingsDescription">
+                        <i class="fas fa-align-left me-2 text-primary"></i>Description
+                    </label>
+                    <textarea id="settingsDescription" class="form-control" rows="2"
+                              @bind="settingsDescription" placeholder="What is this dashboard about? (optional)"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold" for="settingsDatabase">
+                        <i class="fas fa-database me-2 text-primary"></i>Database <span class="text-danger">*</span>
+                    </label>
+                    <select id="settingsDatabase" class="form-select" @bind="settingsDatabaseId">
+                        <option value="0">-- Select a Database --</option>
+                        @foreach (var ds in availableDataSources)
+                        {
+                            <option value="@ds.Id">@ds.Name</option>
+                        }
+                    </select>
+                    @if (IsDatabaseChangeWithComponents)
+                    {
+                        <div class="bh-settings-warning mt-2">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span>The existing components were built for another database. Their loaded data will be cleared; regenerate or edit their SQL after applying.</span>
+                        </div>
+                    }
+                </div>
+
+                @if (availableCategories.Any())
+                {
+                    <div class="mb-1">
+                        <label class="form-label fw-bold" for="settingsCategory">
+                            <i class="fas fa-folder me-2 text-primary"></i>Category
+                        </label>
+                        <select id="settingsCategory" class="form-select" @bind="settingsCategoryId">
+                            @foreach (var category in availableCategories)
+                            {
+                                <option value="@category.CategoryID">@category.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="CloseSettingsModal">Cancel</button>
+                <button type="button" class="btn btn-success" @onclick="ApplyDashboardSettings" disabled="@(!CanApplySettings)">
+                    <i class="fas fa-check me-2"></i>Apply Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal-backdrop fade @(showSettingsModal ? "show" : "")"
+     style="display: @(showSettingsModal ? "block" : "none")"></div>
 @* <div class="modal-backdrop fade @(showAddChartModal ? "show" : "")" style="display: @(showAddChartModal ? "block" : "none")"></div>
  *@
 <style>
@@ -1557,6 +1640,57 @@
     private Dictionary<int, string> componentErrors = new Dictionary<int, string>();
     private Dictionary<int, bool> isRegenerating = new Dictionary<int, bool>();
 
+    // Components whose result was cut off by the server (Query:MaxResultRows): componentId -> row limit
+    private readonly Dictionary<int, int> serverRowLimits = new Dictionary<int, int>();
+
+    // ============================================
+    // AI WORK IN PROGRESS ("Fix with AI" / replace)
+    // ============================================
+    /// <summary>A component the AI is currently working on: what it is doing and since when.</summary>
+    private sealed class AiWorkState
+    {
+        public ComponentRegenerationMode Mode { get; init; }
+        public DateTime StartedAt { get; init; }
+    }
+
+    private readonly Dictionary<int, AiWorkState> aiWork = new Dictionary<int, AiWorkState>();
+
+    // Last reason the AI could not fix a component; stays on the card until the next successful load or SQL edit
+    private readonly Dictionary<int, string> aiFixMessages = new Dictionary<int, string>();
+
+    // Re-renders once per second while the AI works, so the elapsed time on the card stays current
+    private System.Threading.Timer aiWorkTicker;
+
+    // Expected maximum AI time shown on the card; keep in line with the API's DashboardAI:RepairTimeoutSeconds
+    private int aiFixExpectedSeconds = 60;
+
+    // ============================================
+    // CHART DRAWING STATE
+    // Charts are drawn by OnAfterRenderAsync, i.e. after the render that put their
+    // <div id="chart-N"> on the page (wwwroot/JS/dashboard-charts.js does the drawing).
+    // ============================================
+    private readonly HashSet<int> pendingChartRenders = new HashSet<int>();
+    private readonly HashSet<int> pendingChartDestroys = new HashSet<int>();
+    private int lastDrawnCanvasKey = -1;
+    private bool lastDrawnPreviewMode;
+
+    // ============================================
+    // BUILDER SETTINGS
+    // Read from wwwroot/appsettings.json, section "DashboardBuilder"; defaults apply when absent.
+    // ============================================
+    private int maxParallelDataLoads = 4;
+    private int maxTableRowsDisplayed = 100;
+
+    // Grid geometry (must match the CSS: 12 columns, 100px rows, 16px gap)
+    private const int GridColumns = 12;
+    private const int GridRowHeightPx = 100;
+    private const int GridGapPx = 16;
+
+    private static readonly JsonSerializerOptions QueryJsonOptions = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     // Analysis response
     private AnalysisResponse analysisResponse = null;
 
@@ -1572,6 +1706,9 @@
     private int dropIndicatorHeight = 3;
     private bool showDropIndicator = false;
     private ElementReference canvasRef;
+    private bool dropIndicatorCanPlace = true;
+    private double canvasWidthPx = 0;      // unscaled canvas width from the last measurement
+    private bool skipNextRender = false;   // set by drag-over events that changed nothing visible
 
     // ============================================
     // COMPONENT LIBRARY FOR DRAG & DROP
@@ -1615,6 +1752,7 @@
     // ============================================
     protected override async Task OnInitializedAsync()
     {
+        LoadBuilderSettings();
         await LoadCategories();
         await LoadDataSources();
         await LoadTemplates();
@@ -1623,6 +1761,7 @@
         if (DashboardId > 0)
         {
             await LoadDashboard();
+            await AutoLoadDashboardDataAsync();
         }
         else
         {
@@ -1728,55 +1867,181 @@
     // ============================================
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-
-
-
         if (firstRender)
         {
-            // Create .NET reference for JS callbacks
-            dotNetRef = DotNetObjectReference.Create(this);
-
-            // Register keyboard handler
-            await JSRuntime.InvokeVoidAsync("registerKeyboardHandler", dotNetRef);
-
-            // Register getElementBounds helper
-            await JSRuntime.InvokeVoidAsync("eval", @"
-            window.getElementBounds = function(element) {
-                if (!element) return null;
-                const rect = element.getBoundingClientRect();
-                return {
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                    height: rect.height,
-                    scrollLeft: element.scrollLeft || 0,
-                    scrollTop: element.scrollTop || 0
-                };
-            };
-        ");
-            if (!isRenderingCharts)
+            try
             {
-                isRenderingCharts = true;
-                await Task.Delay(200);
-                await RenderAllCharts();
-                isRenderingCharts = false;
+                // Keyboard shortcuts live in wwwroot/JS/dashboard-builder.js
+                dotNetRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("registerKeyboardHandler", dotNetRef);
+            }
+            catch (JSException ex)
+            {
+                Console.WriteLine($"Keyboard shortcuts could not be registered: {ex.Message}");
             }
         }
-        // Also render charts after any state change that might affect them
-        if (!firstRender && dashboard?.Components?.Any() == true)
+
+        // A rebuilt canvas or a switch between design and preview replaces every chart area,
+        // so every chart that has data must be drawn again.
+        if (canvasKey != lastDrawnCanvasKey || isPreviewMode != lastDrawnPreviewMode)
         {
-            var hasChartComponents = dashboard.Components.Any(c =>
-                c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart);
+            lastDrawnCanvasKey = canvasKey;
+            lastDrawnPreviewMode = isPreviewMode;
+            QueueAllChartRenders();
+        }
 
-            if (!isRenderingCharts)
+        await ProcessChartQueueAsync();
+    }
+
+    /// <summary>
+    /// Skips one render when a drag-over event changed nothing visible
+    /// (drag-over fires many times per second).
+    /// </summary>
+    protected override bool ShouldRender()
+    {
+        if (skipNextRender)
+        {
+            skipNextRender = false;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Releases JavaScript resources when leaving the page: keyboard shortcuts, an active
+    /// mouse resize, and every chart drawn by this page.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("unregisterKeyboardHandler");
+            await JSRuntime.InvokeVoidAsync("removeResizeListeners");
+            await JSRuntime.InvokeVoidAsync("DashboardCharts.destroyAll");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The page is unloading; nothing left to clean up.
+        }
+        catch (JSException ex)
+        {
+            Console.WriteLine($"Builder cleanup: {ex.Message}");
+        }
+
+        dotNetRef?.Dispose();
+        aiWorkTicker?.Dispose();
+        aiWorkTicker = null;
+    }
+
+    // ============================================
+    // SETTINGS
+    // ============================================
+
+    /// <summary>Reads the builder settings (wwwroot/appsettings.json, section "DashboardBuilder").</summary>
+    private void LoadBuilderSettings()
+    {
+        maxParallelDataLoads = ReadPositiveSetting("DashboardBuilder:MaxParallelDataLoads", 4);
+        maxTableRowsDisplayed = ReadPositiveSetting("DashboardBuilder:MaxTableRowsDisplayed", 100);
+        aiFixExpectedSeconds = ReadPositiveSetting("DashboardBuilder:AiFixExpectedSeconds", 60);
+    }
+
+    private int ReadPositiveSetting(string key, int defaultValue)
+    {
+        return int.TryParse(Configuration?[key], out var value) && value > 0 ? value : defaultValue;
+    }
+
+    // ============================================
+    // CHART DRAWING (wwwroot/JS/dashboard-charts.js)
+    // ============================================
+
+    /// <summary>Marks a chart to be drawn after the next render.</summary>
+    private void QueueChartRender(int componentId)
+    {
+        pendingChartDestroys.Remove(componentId);
+        pendingChartRenders.Add(componentId);
+    }
+
+    /// <summary>Marks every chart that has data to be drawn after the next render.</summary>
+    private void QueueAllChartRenders()
+    {
+        if (dashboard?.Components == null) return;
+
+        foreach (var component in dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart))
+        {
+            if (componentData.TryGetValue(component.ComponentID, out var rows) && rows?.Count > 0)
             {
-                isRenderingCharts = true;
-                await Task.Delay(200);
-                await RenderAllCharts();
-                isRenderingCharts = false;
+                QueueChartRender(component.ComponentID);
+            }
+        }
+    }
+
+    /// <summary>Marks a removed component's chart to be released after the next render.</summary>
+    private void QueueChartDestroy(int componentId)
+    {
+        pendingChartRenders.Remove(componentId);
+        pendingChartDestroys.Add(componentId);
+    }
+
+    /// <summary>
+    /// Releases and draws the queued charts. Runs after a render, so each chart area is on the
+    /// page; the JavaScript side also waits briefly in case Blazor is still updating it.
+    /// </summary>
+    private async Task ProcessChartQueueAsync()
+    {
+        if (pendingChartDestroys.Count > 0)
+        {
+            var destroyIds = pendingChartDestroys.ToList();
+            pendingChartDestroys.Clear();
+
+            foreach (var id in destroyIds)
+            {
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("DashboardCharts.destroy", id);
+                }
+                catch (JSException ex)
+                {
+                    Console.WriteLine($"Chart {id} could not be released: {ex.Message}");
+                }
             }
         }
 
+        if (pendingChartRenders.Count == 0 || dashboard?.Components == null) return;
+
+        var renderIds = pendingChartRenders.ToList();
+        pendingChartRenders.Clear();
+
+        var drawTasks = new List<Task>();
+        foreach (var id in renderIds)
+        {
+            var component = dashboard.Components.FirstOrDefault(c => c.ComponentID == id);
+            if (component == null || component.DataViewingTypeID != (int)DataViewingTypeEnum.Chart) continue;
+            if (isPreviewMode && !component.IsVisible) continue;
+            if (IsComponentLoading(id) || componentErrors.ContainsKey(id)) continue;
+            if (!componentData.TryGetValue(id, out var rows) || rows == null || rows.Count == 0) continue;
+
+            drawTasks.Add(DrawChartAsync(component, rows));
+        }
+
+        await Task.WhenAll(drawTasks);
+    }
+
+    /// <summary>Draws one chart; failures are reported in the browser console.</summary>
+    private async Task DrawChartAsync(DashboardComponent component, List<Dictionary<string, object>> rows)
+    {
+        try
+        {
+            var chartType = string.IsNullOrWhiteSpace(component.ChartType)
+                ? GetChartType(component.VisualizationConfig)
+                : component.ChartType;
+
+            await JSRuntime.InvokeAsync<bool>("DashboardCharts.render",
+                component.ComponentID, chartType, rows, component.Title);
+        }
+        catch (JSException ex)
+        {
+            Console.WriteLine($"Chart {component.ComponentID} could not be drawn: {ex.Message}");
+        }
     }
 
     // Add this method
@@ -1784,11 +2049,6 @@
     {
         showSidebar = !showSidebar;
         StateHasChanged();
-    }
-
-    public void Dispose()
-    {
-        dotNetRef?.Dispose();
     }
 
     // ============================================
@@ -1866,17 +2126,8 @@
             isKeyboardMoveMode = true;
             lastKeyboardAction = $"Moved to ({newX}, {newY})";
 
-            // Force re-render
-            canvasKey++;
+            // Only the grid position changes: the card keeps its chart (no canvas rebuild).
             StateHasChanged();
-
-            // Re-render chart if needed
-            if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
-                componentData.ContainsKey(selectedComponent.ComponentID))
-            {
-                //await Task.Delay(100);
-                //await RenderChart(selectedComponent);
-            }
 
             Console.WriteLine($"⌨️ Moved '{selectedComponent.Title}' to ({newX}, {newY})");
         }
@@ -1924,17 +2175,8 @@
             isKeyboardMoveMode = true;
             lastKeyboardAction = $"Resized to {newWidth}×{newHeight}";
 
-            // Force re-render
-            canvasKey++;
+            // Only the card size changes: its chart resizes itself (no canvas rebuild).
             StateHasChanged();
-
-            // Re-render chart if needed
-            if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
-                componentData.ContainsKey(selectedComponent.ComponentID))
-            {
-                //await Task.Delay(150);
-                //await RenderChart(selectedComponent);
-            }
 
             Console.WriteLine($"⌨️ Resized '{selectedComponent.Title}' to {newWidth}×{newHeight}");
         }
@@ -2048,6 +2290,9 @@
 
     private void OnDragStartExisting(DragEventArgs e, DashboardComponent component)
     {
+        // A resize handle was pressed: this is a resize, not a move.
+        if (isResizing) return;
+
         isDragging = true;
         draggedComponentType = null;
         draggedExistingComponentId = component.ComponentID;
@@ -2061,6 +2306,7 @@
     {
         isDragging = false;
         showDropIndicator = false;
+        dropIndicatorCanPlace = true;
         draggedComponentType = null;
         draggedExistingComponentId = null;
         StateHasChanged();
@@ -2103,27 +2349,9 @@
     {
         try
         {
-            var bounds = await JSRuntime.InvokeAsync<CanvasBounds>("getElementBounds", canvasRef);
+            var (gridX, gridY) = await GetGridCellAsync(e.ClientX, e.ClientY);
 
-            if (bounds == null)
-            {
-                Console.WriteLine("⚠️ Could not get canvas bounds");
-                return (0, 0);
-            }
-
-            double relativeX = e.ClientX - bounds.Left;
-            double relativeY = e.ClientY - bounds.Top;
-
-            relativeX += bounds.ScrollLeft;
-            relativeY += bounds.ScrollTop;
-
-            double colWidth = bounds.Width / 12.0;
-            double rowHeight = 100.0;
-
-            int gridX = (int)Math.Floor(relativeX / colWidth);
-            int gridY = (int)Math.Floor(relativeY / rowHeight);
-
-            gridX = Math.Max(0, Math.Min(gridX, 12 - dropIndicatorWidth));
+            gridX = Math.Clamp(gridX, 0, Math.Max(0, GridColumns - dropIndicatorWidth));
             gridY = Math.Max(0, gridY);
 
             return (gridX, gridY);
@@ -2133,6 +2361,60 @@
             Console.WriteLine($"❌ Error calculating position: {ex.Message}");
             return (0, 0);
         }
+    }
+
+    /// <summary>
+    /// Canvas position and size. Uses a synchronous call when available (WebAssembly), so
+    /// drag-over handlers finish without yielding and can skip unnecessary renders.
+    /// </summary>
+    private async Task<CanvasBounds> GetCanvasBoundsAsync()
+    {
+        if (JSRuntime is IJSInProcessRuntime inProcess)
+        {
+            return inProcess.Invoke<CanvasBounds>("getElementBounds", canvasRef);
+        }
+        return await JSRuntime.InvokeAsync<CanvasBounds>("getElementBounds", canvasRef);
+    }
+
+    /// <summary>
+    /// Grid cell under a pointer position (not clamped). Accounts for the 16px grid gap and the
+    /// canvas zoom (the canvas is scaled with CSS, so measured sizes are scaled too).
+    /// </summary>
+    private async Task<(int X, int Y)> GetGridCellAsync(double clientX, double clientY)
+    {
+        var bounds = await GetCanvasBoundsAsync();
+        if (bounds == null || bounds.Width <= 0)
+        {
+            Console.WriteLine("⚠️ Could not get canvas bounds");
+            return (0, 0);
+        }
+
+        var scale = zoomLevel > 0 ? zoomLevel : 1.0;
+        canvasWidthPx = bounds.Width / scale;
+
+        double relativeX = (clientX - bounds.Left) / scale + bounds.ScrollLeft;
+        double relativeY = (clientY - bounds.Top) / scale + bounds.ScrollTop;
+
+        double colPitch = (canvasWidthPx + GridGapPx) / GridColumns;
+        double rowPitch = GridRowHeightPx + GridGapPx;
+
+        return ((int)Math.Floor(relativeX / colPitch), (int)Math.Floor(relativeY / rowPitch));
+    }
+
+    /// <summary>Drop indicator position and size in px, from its grid cell and span.</summary>
+    private string GetDropIndicatorStyle()
+    {
+        if (canvasWidthPx <= 0) return "display: none;";
+
+        double colPitch = (canvasWidthPx + GridGapPx) / GridColumns;
+        double rowPitch = GridRowHeightPx + GridGapPx;
+
+        return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "left: {0:0.##}px; top: {1:0.##}px; width: {2:0.##}px; height: {3:0.##}px;",
+            dropIndicatorX * colPitch,
+            dropIndicatorY * rowPitch,
+            dropIndicatorWidth * colPitch - GridGapPx,
+            dropIndicatorHeight * rowPitch - GridGapPx);
     }
 
     private async Task CreateNewComponentAtPosition(string componentType, int gridX, int gridY)
@@ -2177,8 +2459,6 @@
         selectedComponentType = libraryItem.DataViewingTypeID;
 
         isComponentLoading[newId] = false;
-
-        canvasKey++;
 
         ToastService.ShowSuccess($"{libraryItem.Title} added at ({gridX}, {gridY})! Configure it in the properties panel.");
         Console.WriteLine($"✅ Created {libraryItem.Title} at position ({gridX}, {gridY})");
@@ -2298,8 +2578,10 @@
         }
     }
 
-    private bool isRenderingCharts = false; // Add this state variable
-
+    /// <summary>
+    /// Runs the SQL of every component that has a query (at most MaxParallelDataLoads at a time).
+    /// Each component then shows its result, "No rows returned", or the real error.
+    /// </summary>
     private async Task LoadAllComponentsData()
     {
         if (dashboard?.Components == null || !dashboard.Components.Any())
@@ -2314,61 +2596,86 @@
             return;
         }
 
-        isLoadingAllData = true;
+        var componentsWithSql = dashboard.Components
+            .Where(c => !string.IsNullOrWhiteSpace(c.QueryText) && c.DataViewingTypeID != (int)DataViewingTypeEnum.Label)
+            .ToList();
 
+        if (!componentsWithSql.Any())
+        {
+            ToastService.ShowWarning("No components have SQL queries");
+            return;
+        }
+
+        isLoadingAllData = true;
+        StateHasChanged();
 
         try
         {
-            foreach (var component in dashboard.Components)
+            using var throttler = new SemaphoreSlim(maxParallelDataLoads);
+
+            var loadTasks = componentsWithSql.Select(async component =>
             {
-                if (!isComponentLoading.ContainsKey(component.ComponentID))
-                    isComponentLoading[component.ComponentID] = false;
-            }
+                await throttler.WaitAsync();
+                try
+                {
+                    await LoadComponentDataAsync(component);
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            }).ToList();
 
-            var tasks = dashboard.Components
-                .Where(c => !string.IsNullOrEmpty(c.QueryText) && c.DataViewingTypeID != (int)DataViewingTypeEnum.Label)
-                .Select(c => LoadComponentDataAsync(c))
-                .ToList();
+            await Task.WhenAll(loadTasks);
 
-            if (!tasks.Any())
+            var failedCount = componentsWithSql.Count(c => componentErrors.ContainsKey(c.ComponentID));
+            if (failedCount == 0)
             {
-                ToastService.ShowWarning("No components have SQL queries");
-                return;
+                ToastService.ShowSuccess($"Loaded data for {componentsWithSql.Count} component(s)");
             }
-
-            await Task.WhenAll(tasks);
-
-
-
-            // Only render charts if we're not already rendering
-            if (!isRenderingCharts)
+            else
             {
-                isRenderingCharts = true;
-                await Task.Delay(200);
-                await RenderAllCharts();
-                isRenderingCharts = false;
+                ToastService.ShowWarning($"Loaded {componentsWithSql.Count - failedCount} of {componentsWithSql.Count} component(s). " +
+                                         $"{failedCount} failed - each failed card shows the reason and a \"Fix with AI\" option.");
             }
-            StateHasChanged();
-            ToastService.ShowSuccess($"Loaded data for {tasks.Count} component(s)");
         }
         catch (Exception ex)
         {
             ToastService.ShowError($"Error: {ex.Message}");
-
         }
         finally
         {
             isLoadingAllData = false;
-            isRenderingCharts = false;
-
+            StateHasChanged();
         }
     }
 
+    /// <summary>
+    /// Runs one component's SQL. On success the rows are stored (and a chart is queued for drawing);
+    /// on failure the real error message is stored in componentErrors and shown on the card.
+    /// </summary>
     private async Task LoadComponentDataAsync(DashboardComponent component)
     {
-        if (string.IsNullOrEmpty(component.QueryText)) return;
+        if (component == null) return;
 
-        isComponentLoading[component.ComponentID] = true;
+        var componentId = component.ComponentID;
+
+        if (string.IsNullOrWhiteSpace(component.QueryText))
+        {
+            componentData.Remove(componentId);
+            componentErrors.Remove(componentId);
+            return;
+        }
+
+        if (dashboard.DatabaseID <= 0)
+        {
+            componentErrors[componentId] = "Choose a database for this dashboard first (Dashboard Settings).";
+            StateHasChanged();
+            return;
+        }
+
+        isComponentLoading[componentId] = true;
+        componentErrors.Remove(componentId);
         StateHasChanged();
 
         try
@@ -2380,29 +2687,147 @@
                 Sql = component.QueryText
             };
 
-            var response = await Http.PostAsJsonAsync("api/query/execute", request);
+            using var response = await Http.PostAsJsonAsync("api/query/execute", request);
+            var result = await QueryResultHelper.ReadQueryExecutionResponseAsync(response);
 
-            if (response.IsSuccessStatusCode)
+            if (result.Success)
             {
-                var result = await response.Content.ReadFromJsonAsync<QueryExecutionResult>();
-                componentData[component.ComponentID] = result?.Success == true && result.Results != null
-                    ? result.Results
-                    : new List<Dictionary<string, object>>();
+                componentData[componentId] = result.Results ?? new List<Dictionary<string, object>>();
+
+                if (componentData[componentId].Count > 0)
+                {
+                    aiFixMessages.Remove(componentId);
+                }
+
+                if (result.IsTruncated && result.RowLimit.HasValue)
+                {
+                    serverRowLimits[componentId] = result.RowLimit.Value;
+                }
+                else
+                {
+                    serverRowLimits.Remove(componentId);
+                }
             }
             else
             {
-                componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+                componentData.Remove(componentId);
+                serverRowLimits.Remove(componentId);
+                componentErrors[componentId] = result.ErrorMessage;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading data for {component.ComponentID}: {ex.Message}");
-            componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+            componentData.Remove(componentId);
+            serverRowLimits.Remove(componentId);
+            componentErrors[componentId] = $"Could not load data: {ex.Message}";
         }
         finally
         {
-            isComponentLoading[component.ComponentID] = false;
+            isComponentLoading[componentId] = false;
+
+            if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+            {
+                QueueChartRender(componentId);
+            }
+
             StateHasChanged();
+        }
+    }
+
+    /// <summary>Loads data for every component with SQL when the dashboard has a database.</summary>
+    private async Task AutoLoadDashboardDataAsync()
+    {
+        if (dashboard?.DatabaseID > 0 &&
+            dashboard.Components?.Any(c => !string.IsNullOrWhiteSpace(c.QueryText)) == true)
+        {
+            await LoadAllComponentsData();
+        }
+    }
+
+    /// <summary>
+    /// Clears all per-component state of the current dashboard (data, errors, loading flags,
+    /// selection, table paging and drawn charts). Needed before showing another dashboard,
+    /// because component IDs repeat between dashboards (generated ones are always 1..N).
+    /// </summary>
+    private async Task ResetComponentStateAsync()
+    {
+        componentData.Clear();
+        componentErrors.Clear();
+        serverRowLimits.Clear();
+        isComponentLoading.Clear();
+        isRegenerating.Clear();
+        aiWork.Clear();
+        aiFixMessages.Clear();
+        StopAiWorkTickerIfIdle();
+        tableCurrentPage.Clear();
+        tablePageSizeDict.Clear();
+        tableSearchQueryDict.Clear();
+        pendingChartRenders.Clear();
+        pendingChartDestroys.Clear();
+
+        selectedComponentId = 0;
+        isEditingSql = false;
+        isKeyboardMoveMode = false;
+        lastKeyboardAction = "";
+        canvasKey++;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("DashboardCharts.destroyAll");
+        }
+        catch (JSException ex)
+        {
+            Console.WriteLine($"Previous charts could not be released: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// After the first save the API returns the dashboard with database-assigned component IDs.
+    /// Moves each component's loaded data or error to its new ID (matched by position, size and
+    /// SQL), so nothing has to be queried again; components that cannot be matched are reloaded.
+    /// </summary>
+    private async Task RemapComponentStateAfterSaveAsync(List<DashboardComponent> previousComponents, DashboardModel savedDashboard)
+    {
+        var previousData = new Dictionary<int, List<Dictionary<string, object>>>(componentData);
+        var previousErrors = new Dictionary<int, string>(componentErrors);
+        var previousRowLimits = new Dictionary<int, int>(serverRowLimits);
+
+        await ResetComponentStateAsync();
+        dashboard = savedDashboard;
+
+        var componentsToReload = new List<DashboardComponent>();
+
+        foreach (var saved in dashboard.Components ?? new List<DashboardComponent>())
+        {
+            var previous = previousComponents.FirstOrDefault(p =>
+                p.GridX == saved.GridX && p.GridY == saved.GridY &&
+                p.GridWidth == saved.GridWidth && p.GridHeight == saved.GridHeight &&
+                string.Equals(p.QueryText ?? "", saved.QueryText ?? "", StringComparison.Ordinal));
+
+            if (previous != null && previousData.TryGetValue(previous.ComponentID, out var rows))
+            {
+                componentData[saved.ComponentID] = rows;
+                if (previousRowLimits.TryGetValue(previous.ComponentID, out var rowLimit))
+                {
+                    serverRowLimits[saved.ComponentID] = rowLimit;
+                }
+            }
+            else if (previous != null && previousErrors.TryGetValue(previous.ComponentID, out var error))
+            {
+                componentErrors[saved.ComponentID] = error;
+            }
+            else if (!string.IsNullOrWhiteSpace(saved.QueryText))
+            {
+                componentsToReload.Add(saved);
+            }
+        }
+
+        QueueAllChartRenders();
+        StateHasChanged();
+
+        foreach (var component in componentsToReload)
+        {
+            await LoadComponentDataAsync(component);
         }
     }
 
@@ -2464,12 +2889,15 @@
         var newComponent = new DashboardComponent
         {
             ComponentID = dashboard.Components.Max(c => c.ComponentID) + 1,
+            DashboardID = dashboard.DashboardID,
             Title = component.Title + " (Copy)",
             Description = component.Description,
             DataViewingTypeID = component.DataViewingTypeID,
             QueryText = component.QueryText,
             QueryIntent = component.QueryIntent,
             ChartType = component.ChartType,
+            VisualizationConfig = component.VisualizationConfig,
+            FilterExpression = component.FilterExpression,
             GridX = component.GridX,
             GridY = component.GridY + component.GridHeight,
             GridWidth = component.GridWidth,
@@ -2480,9 +2908,29 @@
             LastUpdated = DateTime.UtcNow
         };
 
+        // Place the copy in the nearest free spot below the original instead of overlapping.
+        var (freeX, freeY) = FindNearestAvailablePosition(newComponent.GridX, newComponent.GridY,
+            newComponent.GridWidth, newComponent.GridHeight);
+        newComponent.GridX = freeX;
+        newComponent.GridY = freeY;
+
         dashboard.Components.Add(newComponent);
         hasUnsavedChanges = true;
-        canvasKey++;
+
+        // Same SQL, so reuse the original's rows instead of running the query again.
+        if (componentData.TryGetValue(component.ComponentID, out var rows))
+        {
+            componentData[newComponent.ComponentID] = rows;
+            if (serverRowLimits.TryGetValue(component.ComponentID, out var rowLimit))
+            {
+                serverRowLimits[newComponent.ComponentID] = rowLimit;
+            }
+            if (newComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+            {
+                QueueChartRender(newComponent.ComponentID);
+            }
+        }
+
         StateHasChanged();
         ToastService.ShowSuccess("Component duplicated!");
     }
@@ -2498,9 +2946,14 @@
                 selectedComponentId = 0;
             }
             componentData.Remove(componentId);
+            componentErrors.Remove(componentId);
+            serverRowLimits.Remove(componentId);
             isComponentLoading.Remove(componentId);
+            isRegenerating.Remove(componentId);
+            aiWork.Remove(componentId);
+            aiFixMessages.Remove(componentId);
+            QueueChartDestroy(componentId);
             hasUnsavedChanges = true;
-            canvasKey++;
             StateHasChanged();
             ToastService.ShowInfo("Component removed");
         }
@@ -2512,35 +2965,46 @@
         StateHasChanged();
     }
 
-    private async Task ApplyComponentChanges()
+    private Task ApplyComponentChanges()
     {
         if (selectedComponent == null)
         {
             ToastService.ShowWarning("No component selected");
-            return;
+            return Task.CompletedTask;
         }
 
         selectedComponent.LastUpdated = DateTime.UtcNow;
         hasUnsavedChanges = true;
-        canvasKey++;
-        StateHasChanged();
 
-        await Task.Delay(100);
-
-        if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart &&
-            componentData.ContainsKey(selectedComponent.ComponentID))
+        // Redraw the chart so title or type changes show immediately.
+        if (selectedComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
         {
-            //await RenderChart(selectedComponent);
+            QueueChartRender(selectedComponent.ComponentID);
         }
 
+        StateHasChanged();
         ToastService.ShowSuccess("Changes applied!");
+        return Task.CompletedTask;
     }
 
-    private async Task RegenerateComponent(DashboardComponent component)
+    /// <summary>
+    /// Asks the AI to regenerate one component (api/assistant/regenerate).
+    /// Repair ("Fix with AI" on a failed or empty card): keeps the title, description and type; only
+    /// the SQL changes, and the API test-runs it before returning it.
+    /// Alternative (card header button): a different component of the same type.
+    /// On failure the card stays unchanged and the reason from the API is shown.
+    /// </summary>
+    private async Task RegenerateComponent(DashboardComponent component, ComponentRegenerationMode mode)
     {
         if (component == null || dashboard.DatabaseID <= 0) return;
 
-        isRegenerating[component.ComponentID] = true;
+        var componentId = component.ComponentID;
+        var isRepair = mode == ComponentRegenerationMode.Repair;
+
+        isRegenerating[componentId] = true;
+        aiFixMessages.Remove(componentId);
+        aiWork[componentId] = new AiWorkState { Mode = mode, StartedAt = DateTime.UtcNow };
+        EnsureAiWorkTicker();
         StateHasChanged();
 
         try
@@ -2553,59 +3017,143 @@
                 GridWidth = component.GridWidth,
                 GridHeight = component.GridHeight,
                 FailedTitle = component.Title,
+                FailedDescription = component.Description,
                 FailedSql = component.QueryText,
-                ErrorMessage = componentErrors.ContainsKey(component.ComponentID) ? componentErrors[component.ComponentID] : "User requested regeneration",
-                ExistingTitles = dashboard.Components.Where(c => c.ComponentID != component.ComponentID).Select(c => c.Title).ToList(),
+                ErrorMessage = isRepair ? GetComponentProblem(componentId) : "User requested different component",
+                ExistingTitles = dashboard.Components.Where(c => c.ComponentID != componentId).Select(c => c.Title).ToList(),
                 DataViewingTypeID = component.DataViewingTypeID,
-                ChartType = component.ChartType
+                ChartType = component.ChartType,
+                Mode = mode
             };
 
-            var response = await Http.PostAsJsonAsync("api/assistant/regenerate", request);
+            using var response = await Http.PostAsJsonAsync("api/assistant/regenerate", request);
+            var result = await ReadAssistantResponseAsync(response);
 
-            if (response.IsSuccessStatusCode)
+            var suggestion = result.Success ? result.Suggestions?.FirstOrDefault() : null;
+            if (suggestion == null || string.IsNullOrWhiteSpace(suggestion.SqlTemplate))
             {
-                var result = await response.Content.ReadFromJsonAsync<AssistantSuggestionResponse>();
+                var reason = string.IsNullOrWhiteSpace(result.Message)
+                    ? "The AI could not produce a working query."
+                    : result.Message;
 
-                if (result?.Success == true && result.Suggestions?.Any() == true)
-                {
-                    var newSuggestion = result.Suggestions.First();
-                    component.Title = newSuggestion.Title;
-                    component.Description = newSuggestion.Description;
-                    component.QueryText = newSuggestion.SqlTemplate;
+                // Keep the reason on the card too: a toast disappears after a few seconds.
+                aiFixMessages[componentId] = reason;
 
-                    componentErrors.Remove(component.ComponentID);
-                    componentData.Remove(component.ComponentID);
-
-                    await LoadComponentDataAsync(component);
-
-                    if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
-                    {
-                        await Task.Delay(200);
-                        await RenderChart(component);
-                    }
-
-                    hasUnsavedChanges = true;
-                    ToastService.ShowSuccess($"Regenerated: {component.Title}");
-                }
-                else
-                {
-                    ToastService.ShowError(result?.Message ?? "Failed to regenerate");
-                }
+                ToastService.ShowError(isRepair
+                    ? $"Could not fix \"{component.Title}\": {reason}"
+                    : $"Could not replace \"{component.Title}\": {reason}");
+                return;
             }
-            else
+
+            // Repair keeps the card's title and description; a replacement brings its own.
+            if (!isRepair)
             {
-                ToastService.ShowError("Failed to regenerate component");
+                if (!string.IsNullOrWhiteSpace(suggestion.Title)) component.Title = suggestion.Title;
+                if (suggestion.Description != null) component.Description = suggestion.Description;
             }
+
+            component.QueryText = suggestion.SqlTemplate;
+            component.LastUpdated = DateTime.UtcNow;
+
+            componentErrors.Remove(componentId);
+            componentData.Remove(componentId);
+            serverRowLimits.Remove(componentId);
+            hasUnsavedChanges = true;
+
+            // Loading the data also queues the chart drawing.
+            await LoadComponentDataAsync(component);
+
+            ToastService.ShowSuccess(isRepair
+                ? $"\"{component.Title}\": {result.Message}"
+                : $"Replaced with \"{component.Title}\"");
         }
         catch (Exception ex)
         {
+            aiFixMessages[componentId] = ex.Message;
             ToastService.ShowError($"Error: {ex.Message}");
         }
         finally
         {
-            isRegenerating[component.ComponentID] = false;
+            isRegenerating[componentId] = false;
+            aiWork.Remove(componentId);
+            StopAiWorkTickerIfIdle();
             StateHasChanged();
         }
+    }
+
+    /// <summary>Starts the once-per-second refresh used for the elapsed time on working cards.</summary>
+    private void EnsureAiWorkTicker()
+    {
+        aiWorkTicker ??= new System.Threading.Timer(
+            _ => _ = InvokeAsync(StateHasChanged),
+            null,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>Stops the refresh when no component is waiting for the AI any more.</summary>
+    private void StopAiWorkTickerIfIdle()
+    {
+        if (aiWork.Count == 0 && aiWorkTicker != null)
+        {
+            aiWorkTicker.Dispose();
+            aiWorkTicker = null;
+        }
+    }
+
+    private static string GetAiWorkElapsedText(AiWorkState work)
+    {
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - work.StartedAt).TotalSeconds);
+        return $"{seconds} s";
+    }
+
+    /// <summary>What is wrong with a component, sent to the AI in repair mode.</summary>
+    private string GetComponentProblem(int componentId)
+    {
+        if (componentErrors.TryGetValue(componentId, out var error) && !string.IsNullOrWhiteSpace(error))
+        {
+            return error;
+        }
+
+        return componentData.TryGetValue(componentId, out var rows) && rows?.Count == 0
+            ? "The query ran successfully but returned no rows."
+            : "The query needs to be checked and fixed.";
+    }
+
+    /// <summary>
+    /// Reads the api/assistant/regenerate response, success or failure. On failure the API sends
+    /// { "message": ... }, which maps to Message, so the real reason can be shown.
+    /// </summary>
+    private static async Task<AssistantSuggestionResponse> ReadAssistantResponseAsync(HttpResponseMessage response)
+    {
+        AssistantSuggestionResponse result = null;
+
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                result = JsonSerializer.Deserialize<AssistantSuggestionResponse>(body, QueryJsonOptions);
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON: fall through to the generic message below.
+        }
+
+        result ??= new AssistantSuggestionResponse();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            result.Success = false;
+        }
+
+        if (!result.Success && string.IsNullOrWhiteSpace(result.Message))
+        {
+            result.Message = $"The AI request failed ({(int)response.StatusCode} {response.ReasonPhrase}).";
+        }
+
+        return result;
     }
 
     // ============================================
@@ -2663,6 +3211,7 @@
         if (selectedComponent == null) return;
         selectedComponent.ChartType = chartType;
         hasUnsavedChanges = true;
+        QueueChartRender(selectedComponent.ComponentID);
         StateHasChanged();
     }
 
@@ -2672,45 +3221,26 @@
         selectedComponent.GridWidth = width;
         selectedComponent.GridHeight = height;
         hasUnsavedChanges = true;
-        canvasKey++;
         StateHasChanged();
     }
 
-    private async Task RenderChart(DashboardComponent component)
+    /// <summary>Requests a redraw of one chart after the next render (kept for existing callers).</summary>
+    private Task RenderChart(DashboardComponent component)
     {
-        try
+        if (component != null)
         {
-            if (!componentData.ContainsKey(component.ComponentID)) return;
-
-            var data = componentData[component.ComponentID];
-            if (data == null || !data.Any()) return;
-
-            var chartType = component.ChartType?.ToLower() ?? "bar";
-
-            await JSRuntime.InvokeVoidAsync("renderDynamicChart",
-                component.ComponentID,
-                chartType,
-                data,
-                component.Title);
+            QueueChartRender(component.ComponentID);
+            StateHasChanged();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error rendering chart {component.ComponentID}: {ex.Message}");
-        }
+        return Task.CompletedTask;
     }
 
-    private async Task RenderAllCharts()
+    /// <summary>Requests a redraw of every chart that has data (kept for existing callers).</summary>
+    private Task RenderAllCharts()
     {
-        await Task.Delay(100);
-
-        var chartComponents = dashboard.Components
-            .Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart && c.IsVisible && componentData.ContainsKey(c.ComponentID))
-            .ToList();
-
-        foreach (var chart in chartComponents)
-        {
-            await RenderChart(chart);
-        }
+        QueueAllChartRenders();
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
     // ============================================
@@ -2723,13 +3253,28 @@
         StateHasChanged();
     }
 
-    private void SaveSqlEdit()
+    private async Task SaveSqlEdit()
     {
         if (selectedComponent != null && !string.IsNullOrWhiteSpace(editingSqlText))
         {
-            selectedComponent.QueryText = editingSqlText.Trim();
+            var component = selectedComponent;
+            var newSql = editingSqlText.Trim();
+            var sqlChanged = !string.Equals(component.QueryText?.Trim(), newSql, StringComparison.Ordinal);
+            if (sqlChanged)
+            {
+                aiFixMessages.Remove(component.ComponentID);
+            }
+
+            component.QueryText = newSql;
             hasUnsavedChanges = true;
+            isEditingSql = false;
             ToastService.ShowSuccess("SQL query updated");
+
+            // Run the new query so the card shows its real result (or the real error).
+            if (sqlChanged && dashboard.DatabaseID > 0)
+            {
+                await LoadComponentDataAsync(component);
+            }
         }
         isEditingSql = false;
         StateHasChanged();
@@ -2768,7 +3313,7 @@
         }
 
         hasUnsavedChanges = true;
-        canvasKey++;
+        QueueChartRender(selectedComponent.ComponentID);
         StateHasChanged();
     }
 
@@ -2811,8 +3356,19 @@
                     var createdDashboard = await response.Content.ReadFromJsonAsync<DashboardModel>();
                     if (createdDashboard != null)
                     {
-                        dashboard = createdDashboard;
-                        NavigationManager.NavigateTo($"/dashboard/builder/{dashboard.DashboardID}", false);
+                        NavigationManager.NavigateTo($"/dashboard/builder/{createdDashboard.DashboardID}", false);
+
+                        if (createdDashboard.Components?.Any() == true)
+                        {
+                            // Components now have database IDs: keep their loaded data and charts.
+                            var previousComponents = dashboard.Components?.ToList() ?? new List<DashboardComponent>();
+                            await RemapComponentStateAfterSaveAsync(previousComponents, createdDashboard);
+                        }
+                        else
+                        {
+                            // The response has no components: keep the canvas and take the new ID.
+                            dashboard.DashboardID = createdDashboard.DashboardID;
+                        }
                     }
                 }
 
@@ -2943,33 +3499,115 @@
         if (isPreviewMode)
         {
             selectedComponentId = 0;
+            isEditingSql = false;
+
             if (!componentData.Any())
             {
                 await LoadAllComponentsData();
-            }
-            else
-            {
-                StateHasChanged();
-                await Task.Delay(200);
-                await RenderAllCharts();
+                return;
             }
         }
-        else
-        {
-            StateHasChanged();
-            await Task.Delay(200);
-            await RenderAllCharts();
-        }
+
+        // Switching modes replaces the canvas; OnAfterRenderAsync redraws every chart.
+        StateHasChanged();
     }
 
     private void ZoomIn() { if (zoomLevel < 1.5) zoomLevel += 0.1; }
     private void ZoomOut() { if (zoomLevel > 0.5) zoomLevel -= 0.1; }
     private void ResetZoom() { zoomLevel = 1.0; }
+    // Old before claude
+    // private void ShowDashboardSettings()
+    // {
+    //     showSettingsModal = true;
+    //     StateHasChanged();
+    // }
 
+
+    // =============Claude 25 9 2026===============================
+    // DASHBOARD SETTINGS
+    // Working copies: values reach the dashboard only on "Apply",
+    // so "Cancel" leaves the dashboard untouched.
+    // ============================================
+    private string settingsTitle = "";
+    private string settingsDescription = "";
+    private int settingsDatabaseId = 0;
+    private int settingsCategoryId = 0;
+
+    /// <summary>Title and database are required before settings can be applied.</summary>
+    private bool CanApplySettings =>
+        !string.IsNullOrWhiteSpace(settingsTitle) && settingsDatabaseId > 0;
+
+    /// <summary>True when switching the database of a dashboard that already has components.</summary>
+    private bool IsDatabaseChangeWithComponents =>
+        dashboard?.Components?.Any() == true &&
+        dashboard.DatabaseID > 0 &&
+        settingsDatabaseId > 0 &&
+        settingsDatabaseId != dashboard.DatabaseID;
+
+    /// <summary>Opens the settings window pre-filled with the current dashboard values.</summary>
     private void ShowDashboardSettings()
     {
+        settingsTitle = dashboard?.Title ?? "";
+        settingsDescription = dashboard?.Description ?? "";
+        settingsDatabaseId = dashboard?.DatabaseID ?? 0;
+        settingsCategoryId = dashboard?.CategoryID ?? 0;
         showSettingsModal = true;
         StateHasChanged();
+    }
+
+    private void CloseSettingsModal()
+    {
+        showSettingsModal = false;
+        StateHasChanged();
+    }
+
+    /// <summary>Copies the working values to the dashboard and marks it as changed.</summary>
+    private void ApplyDashboardSettings()
+    {
+        if (!CanApplySettings)
+        {
+            ToastService.ShowWarning("Please enter a title and choose a database");
+            return;
+        }
+
+        var databaseChanged = dashboard.DatabaseID != settingsDatabaseId;
+
+        dashboard.Title = settingsTitle.Trim();
+        dashboard.Description = settingsDescription?.Trim() ?? "";
+        dashboard.DatabaseID = settingsDatabaseId;
+
+        if (settingsCategoryId > 0)
+        {
+            dashboard.CategoryID = settingsCategoryId;
+        }
+
+        if (databaseChanged)
+        {
+            // Loaded rows belong to the previous database, so drop them and their charts.
+            componentData.Clear();
+            componentErrors.Clear();
+            foreach (var component in dashboard.Components ?? new List<DashboardComponent>())
+            {
+                QueueChartDestroy(component.ComponentID);
+            }
+        }
+
+        hasUnsavedChanges = true;
+        showSettingsModal = false;
+        ToastService.ShowSuccess("Dashboard settings updated");
+        StateHasChanged();
+    }
+
+    /// <summary>Display name of the dashboard's database for the header chip.</summary>
+    private string GetDashboardDatabaseName()
+    {
+        if (dashboard == null || dashboard.DatabaseID <= 0)
+        {
+            return "Choose database";
+        }
+
+        return availableDataSources.FirstOrDefault(d => d.Id == dashboard.DatabaseID)?.Name
+               ?? $"Database #{dashboard.DatabaseID}";
     }
 
     private void AutoArrangeComponents()
@@ -2999,7 +3637,7 @@
         }
 
         hasUnsavedChanges = true;
-        canvasKey++;
+        UpdateOccupancyMap();
         StateHasChanged();
         ToastService.ShowSuccess("Components auto-arranged!");
     }
@@ -3025,9 +3663,19 @@
     // ============================================
     private void ShowAddComponentModal()
     {
+        @*old before claude
         if (dashboard.DatabaseID <= 0)
         {
             ToastService.ShowWarning("Please select a database first");
+            return;
+        }
+         *@
+         //Claude 25 9 2026
+                 if (dashboard.DatabaseID <= 0)
+        {
+            // Guide the user instead of silently blocking: open Settings to pick a database.
+            ToastService.ShowInfo("Choose the dashboard's database first");
+            ShowDashboardSettings();
             return;
         }
 
@@ -3202,24 +3850,12 @@
 
         dashboard.Components.Add(newComponent);
         hasUnsavedChanges = true;
-        canvasKey++;
         StateHasChanged();
 
-        // Wait for DOM to update
-        await Task.Delay(300);
-
+        // Loading the data also queues the chart drawing (see LoadComponentDataAsync).
         if (!string.IsNullOrEmpty(newComponent.QueryText))
         {
-            isComponentLoading[newComponent.ComponentID] = false;
             await LoadComponentDataAsync(newComponent);
-            await Task.Delay(300); // Wait for data to load
-
-            // Render based on component type
-            if (newComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
-            {
-                await RenderChart(newComponent);
-            }
-            // Table and KPI will render automatically when data is loaded
         }
     }
 
@@ -3278,28 +3914,39 @@
 
         dashboard.Components.Add(newComponent);
         hasUnsavedChanges = true;
-        canvasKey++;
         StateHasChanged();
 
+        // Loading the data also queues the chart drawing (see LoadComponentDataAsync).
         if (!string.IsNullOrEmpty(newComponent.QueryText))
         {
-            isComponentLoading[newComponent.ComponentID] = false;
             await LoadComponentDataAsync(newComponent);
-            await Task.Delay(200);
-            await RenderChart(newComponent);
         }
     }
 
     // ============================================
     // TEMPLATE METHODS
     // ============================================
+    @*Before claude 25 9 2026
     private void ShowTemplateModal()
     {
         selectedTemplateId = "";
         selectedDatabaseIdForTemplate = 0;
         showTemplateModal = true;
     }
+    *@
+    ///claude : <summary>
+    /// 
 
+    /// </summary>
+        private void ShowTemplateModal()
+    {
+        selectedTemplateId = "";
+        // The template window is where the database is chosen, so this is never
+        // blocked by a missing database. Preselect the dashboard's database if set.
+        selectedDatabaseIdForTemplate = dashboard != null && dashboard.DatabaseID > 0 ? dashboard.DatabaseID : 0;
+        showTemplateModal = true;
+    }
+    /// 
     private void CloseTemplateModal()
     {
         showTemplateModal = false;
@@ -3333,13 +3980,21 @@
 
                 if (dashboards != null && dashboards.Any())
                 {
+                    // Clear everything from the previous dashboard first: generated components
+                    // always use IDs 1..N, so old data and charts would otherwise show on the new cards.
+                    await ResetComponentStateAsync();
+
                     dashboard = dashboards[0];
                     dashboard.DatabaseID = selectedDatabaseIdForTemplate;
                     PrepareDashboardForSave();
+                    hasUnsavedChanges = true;
 
-                    ToastService.ShowSuccess($"Dashboard generated with {dashboard.Components.Count} components!");
+                    ToastService.ShowSuccess($"Dashboard generated with {dashboard.Components.Count} components! Loading data...");
                     CloseTemplateModal();
                     StateHasChanged();
+
+                    // Run every component's query so KPIs, charts and tables appear right away.
+                    await LoadAllComponentsData();
                 }
                 else
                 {
@@ -3489,12 +4144,250 @@
     private string FormatNumber(object value)
     {
         if (value == null) return "0";
-        if (decimal.TryParse(value.ToString(), out decimal d))
+        if (QueryResultHelper.TryGetDecimal(value, out var number))
         {
-            return d == Math.Floor(d) ? d.ToString("N0") : d.ToString("N2");
+            return number == Math.Floor(number) ? number.ToString("N0") : number.ToString("N2");
         }
-        return value.ToString();
+        return FormatCell(value);
     }
+
+    /// <summary>Display text for a table cell ("-" for empty values).</summary>
+    private static string FormatCell(object value)
+    {
+        if (value == null) return "-";
+
+        if (value is JsonElement element)
+        {
+            return element.ValueKind switch
+            {
+                JsonValueKind.Null or JsonValueKind.Undefined => "-",
+                JsonValueKind.String => element.GetString() ?? "-",
+                _ => element.ToString()
+            };
+        }
+
+        return value.ToString() ?? "-";
+    }
+
+    private static string GetCellText(Dictionary<string, object> row, string column)
+    {
+        return row != null && row.TryGetValue(column, out var value) ? FormatCell(value) : "-";
+    }
+
+    /// <summary>Table columns shown on a card (the first six, as before).</summary>
+    private List<string> GetTableColumns(int componentId)
+    {
+        var firstRow = GetComponentData(componentId).FirstOrDefault();
+        return firstRow?.Keys.Take(6).ToList() ?? new List<string>();
+    }
+
+    private bool IsRegeneratingComponent(int componentId)
+    {
+        return isRegenerating.TryGetValue(componentId, out var regenerating) && regenerating;
+    }
+
+    // ============================================
+    // COMPONENT BODY (design and preview share one implementation)
+    // ============================================
+
+    /// <summary>
+    /// A component's body. States, in order: label (no data needed), loading, query failed
+    /// (message + Retry + Fix with AI), no SQL yet, not loaded yet, no rows, then the content.
+    /// </summary>
+    private RenderFragment RenderComponentBody(DashboardComponent component) => @<div class="component-body">
+        @if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Label)
+        {
+            <div class="label-display text-center p-3">
+                <h5>@component.Title</h5>
+                @if (!string.IsNullOrEmpty(component.Description))
+                {
+                    <p class="text-muted mb-0">@component.Description</p>
+                }
+            </div>
+        }
+        else if (IsComponentLoading(component.ComponentID))
+        {
+            <div class="component-state component-state-loading">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="component-state-title">Loading data...</p>
+            </div>
+        }
+        else if (aiWork.TryGetValue(component.ComponentID, out var work))
+        {
+            <div class="component-state component-state-working">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="component-state-title">@(work.Mode == ComponentRegenerationMode.Repair ? "Fixing with AI..." : "Generating a replacement...")</p>
+                <small class="component-state-message">
+                    @GetAiWorkElapsedText(work) - this can take up to @aiFixExpectedSeconds s
+                </small>
+            </div>
+        }
+        else if (componentErrors.ContainsKey(component.ComponentID))
+        {
+            <div class="component-state component-state-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p class="component-state-title">Query failed</p>
+                <small class="component-state-message" title="@componentErrors[component.ComponentID]">@componentErrors[component.ComponentID]</small>
+                @RenderAiFixNote(component.ComponentID)
+                <div class="component-state-actions">
+                    <button type="button" class="state-btn" title="Run the query again"
+                            @onclick="() => LoadComponentDataAsync(component)"
+                            @onclick:stopPropagation="true">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                    @if (!isPreviewMode)
+                    {
+                        @RenderFixWithAiButton(component, "Ask AI to fix this query using the error above (same title and purpose)")
+                    }
+                </div>
+            </div>
+        }
+        else if (string.IsNullOrWhiteSpace(component.QueryText))
+        {
+            <div class="component-state component-state-setup">
+                <i class="fas @GetComponentIcon(component.DataViewingTypeID)"></i>
+                <p class="component-state-title">@GetComponentTypeName(component.DataViewingTypeID)</p>
+                <small class="component-state-message">@(isPreviewMode ? "No query configured." : "Add a SQL query in the properties panel.")</small>
+            </div>
+        }
+        else if (!componentData.ContainsKey(component.ComponentID))
+        {
+            <div class="component-state component-state-idle">
+                <i class="fas @GetComponentIcon(component.DataViewingTypeID)"></i>
+                <p class="component-state-title">@GetComponentTypeName(component.DataViewingTypeID)</p>
+                <small class="component-state-message">Data not loaded yet.</small>
+                <div class="component-state-actions">
+                    <button type="button" class="state-btn state-btn-primary" title="Run this component's query"
+                            disabled="@(dashboard.DatabaseID <= 0)"
+                            @onclick="() => LoadComponentDataAsync(component)"
+                            @onclick:stopPropagation="true">
+                        <i class="fas fa-play"></i> Load data
+                    </button>
+                </div>
+            </div>
+        }
+        else if (GetComponentData(component.ComponentID).Count == 0)
+        {
+            <div class="component-state component-state-empty">
+                <i class="fas fa-inbox"></i>
+                <p class="component-state-title">No rows returned</p>
+                <small class="component-state-message">The query ran successfully but returned no data.</small>
+                @RenderAiFixNote(component.ComponentID)
+                <div class="component-state-actions">
+                    <button type="button" class="state-btn" title="Run the query again"
+                            @onclick="() => LoadComponentDataAsync(component)"
+                            @onclick:stopPropagation="true">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                    @if (!isPreviewMode)
+                    {
+                        @RenderFixWithAiButton(component, "Ask AI to adjust this query so it returns data (same title and purpose)")
+                    }
+                </div>
+            </div>
+        }
+        else if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Table)
+        {
+            @RenderTable(component)
+        }
+        else if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Number)
+        {
+            <div class="kpi-display">
+                <div class="kpi-value">@FormatNumber(QueryResultHelper.GetKpiValue(GetComponentData(component.ComponentID)))</div>
+                @if (!string.IsNullOrEmpty(component.Description))
+                {
+                    <div class="kpi-description" title="@component.Description">@component.Description</div>
+                }
+            </div>
+        }
+        else if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+        {
+            <div id="chart-@component.ComponentID" class="component-chart" style="height: 100%; min-height: 200px;"></div>
+        }
+        else
+        {
+            <div class="text-center text-muted p-3">
+                <i class="fas fa-cube fa-2x mb-2"></i>
+                <p class="mb-0">Component</p>
+            </div>
+        }
+    </div>;
+
+    /// <summary>Why the last AI fix did not succeed (kept on the card until the next successful load or SQL edit).</summary>
+    private RenderFragment RenderAiFixNote(int componentId) => @<span class="component-state-ai-note-host">
+        @if (aiFixMessages.TryGetValue(componentId, out var note))
+        {
+            <small class="component-state-ai-note" title="@note">
+                <i class="fas fa-robot"></i> AI fix: @note
+            </small>
+        }
+    </span>;
+
+    /// <summary>"Fix with AI" (repair mode): shows progress while the AI works on this component.</summary>
+    private RenderFragment RenderFixWithAiButton(DashboardComponent component, string tooltip) => @<button type="button" class="state-btn state-btn-primary"
+            title="@tooltip"
+            disabled="@(IsRegeneratingComponent(component.ComponentID) || dashboard.DatabaseID <= 0)"
+            @onclick="() => RegenerateComponent(component, ComponentRegenerationMode.Repair)"
+            @onclick:stopPropagation="true">
+        @if (IsRegeneratingComponent(component.ComponentID))
+        {
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            <span>Fixing...</span>
+        }
+        else
+        {
+            <i class="fas fa-magic"></i>
+            <span>Fix with AI</span>
+        }
+    </button>;
+
+    /// <summary>
+    /// Footer under a table card: explains when not all rows are shown, either because the card
+    /// shows at most MaxTableRowsDisplayed rows or because the server stopped at Query:MaxResultRows.
+    /// </summary>
+    private string GetTableFooterText(int componentId)
+    {
+        var rowCount = GetComponentData(componentId).Count;
+        var shown = Math.Min(rowCount, maxTableRowsDisplayed);
+
+        if (serverRowLimits.TryGetValue(componentId, out var rowLimit))
+        {
+            return $"Showing {shown:N0} of the first {rowLimit:N0} rows (server row limit reached)";
+        }
+
+        return rowCount > maxTableRowsDisplayed
+            ? $"Showing the first {shown:N0} of {rowCount:N0} rows"
+            : string.Empty;
+    }
+
+    /// <summary>Table body: first six columns, at most MaxTableRowsDisplayed rows.</summary>
+    private RenderFragment RenderTable(DashboardComponent component) => @<div class="table-responsive component-table" style="max-height: 100%; overflow: auto;">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="sticky-top bg-light">
+                <tr>
+                    @foreach (var column in GetTableColumns(component.ComponentID))
+                    {
+                        <th style="font-size: 17px;">@column</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in GetComponentData(component.ComponentID).Take(maxTableRowsDisplayed))
+                {
+                    <tr>
+                        @foreach (var column in GetTableColumns(component.ComponentID))
+                        {
+                            <td style="font-size: 17px;">@GetCellText(row, column)</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (!string.IsNullOrEmpty(GetTableFooterText(component.ComponentID)))
+        {
+            <div class="component-table-footer">@GetTableFooterText(component.ComponentID)</div>
+        }
+    </div>;
 
     private string GetTemplateIcon(string category)
     {
@@ -3519,29 +4412,7 @@
     {
         try
         {
-            var bounds = await JSRuntime.InvokeAsync<CanvasBounds>("getElementBounds", canvasRef);
-
-            if (bounds == null)
-            {
-                Console.WriteLine("⚠️ Could not get canvas bounds");
-                return (0, 0);
-            }
-
-            // Calculate relative position within canvas
-            double relativeX = e.ClientX - bounds.Left;
-            double relativeY = e.ClientY - bounds.Top;
-
-            // Account for scroll position
-            relativeX += bounds.ScrollLeft;
-            relativeY += bounds.ScrollTop;
-
-            // Calculate column width (12 column grid)
-            double colWidth = bounds.Width / 12.0;
-            double rowHeight = 100.0;
-
-            // Calculate grid position
-            int gridX = (int)Math.Floor(relativeX / colWidth);
-            int gridY = (int)Math.Floor(relativeY / rowHeight);
+            var (gridX, gridY) = await GetGridCellAsync(e.ClientX, e.ClientY);
 
             // Snap to grid if enabled
             if (snapToGrid && gridSnapSize > 1)
@@ -3551,7 +4422,7 @@
             }
 
             // Clamp to valid range
-            gridX = Math.Max(0, Math.Min(gridX, 12 - dropIndicatorWidth));
+            gridX = Math.Clamp(gridX, 0, Math.Max(0, GridColumns - dropIndicatorWidth));
             gridY = Math.Max(0, gridY);
 
             return (gridX, gridY);
@@ -3634,20 +4505,62 @@
     private bool isResizing = false;
     private int? resizingComponentId = null;
     private string resizeDirection = "";
+    private int resizeStartX, resizeStartY, resizeStartWidth, resizeStartHeight;
 
-
-    // Add resize methods
-    private void StartResize(MouseEventArgs e, int componentId, string direction)
+    /// <summary>A resize handle on a selected card (n, s, e, w and the four corners).</summary>
+    private sealed class ResizeHandle
     {
-        isResizing = true;
-        resizingComponentId = componentId;
-        resizeDirection = direction;
-
-        // Add global mouse event listeners
-        JSRuntime.InvokeVoidAsync("addResizeListeners",
-            DotNetObjectReference.Create(this));
+        public string Direction { get; init; }
+        public string Title { get; init; }
     }
 
+    private static readonly IReadOnlyList<ResizeHandle> ResizeHandles = new List<ResizeHandle>
+    {
+        new ResizeHandle { Direction = "n", Title = "Resize North" },
+        new ResizeHandle { Direction = "s", Title = "Resize South" },
+        new ResizeHandle { Direction = "e", Title = "Resize East" },
+        new ResizeHandle { Direction = "w", Title = "Resize West" },
+        new ResizeHandle { Direction = "ne", Title = "Resize North-East" },
+        new ResizeHandle { Direction = "nw", Title = "Resize North-West" },
+        new ResizeHandle { Direction = "se", Title = "Resize South-East" },
+        new ResizeHandle { Direction = "sw", Title = "Resize South-West" }
+    };
+
+    /// <summary>
+    /// Starts a mouse resize from a card's edge or corner. JavaScript then reports pointer moves
+    /// (OnResizeMove) and the release (OnResizeEnd). One .NET reference is reused for all resizes.
+    /// </summary>
+    private async Task StartResize(MouseEventArgs e, int componentId, string direction)
+    {
+        var component = dashboard.Components?.FirstOrDefault(c => c.ComponentID == componentId);
+        if (component == null || isPreviewMode) return;
+
+        isResizing = true;
+        resizingComponentId = componentId;
+        resizeDirection = direction ?? "";
+        resizeStartX = component.GridX;
+        resizeStartY = component.GridY;
+        resizeStartWidth = component.GridWidth;
+        resizeStartHeight = component.GridHeight;
+
+        try
+        {
+            dotNetRef ??= DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("addResizeListeners", dotNetRef, resizeDirection);
+        }
+        catch (JSException ex)
+        {
+            isResizing = false;
+            resizingComponentId = null;
+            Console.WriteLine($"Resize could not start: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called while the mouse moves during a resize. The dragged edges follow the grid cell
+    /// under the pointer and the opposite edges stay fixed, for all eight handles. A new size
+    /// is applied only when it does not overlap another component.
+    /// </summary>
     [JSInvokable]
     public async Task OnResizeMove(MouseEventArgs e)
     {
@@ -3656,22 +4569,34 @@
         var component = dashboard.Components?.FirstOrDefault(c => c.ComponentID == resizingComponentId.Value);
         if (component == null) return;
 
-        var position = await CalculateGridPosition(e, false);
+        var (cellX, cellY) = await GetGridCellAsync(e.ClientX, e.ClientY);
 
-        // Calculate new size based on direction
-        // Implementation depends on your grid system
-        // This is a simplified example
-        if (resizeDirection.Contains("e"))
+        int left = resizeStartX;
+        int top = resizeStartY;
+        int right = resizeStartX + resizeStartWidth - 1;
+        int bottom = resizeStartY + resizeStartHeight - 1;
+
+        if (resizeDirection.Contains('e')) right = Math.Clamp(cellX, left, GridColumns - 1);
+        if (resizeDirection.Contains('w')) left = Math.Clamp(cellX, 0, right);
+        if (resizeDirection.Contains('s')) bottom = Math.Max(cellY, top);
+        if (resizeDirection.Contains('n')) top = Math.Clamp(cellY, 0, bottom);
+
+        int newWidth = right - left + 1;
+        int newHeight = bottom - top + 1;
+
+        bool unchanged = left == component.GridX && top == component.GridY &&
+                         newWidth == component.GridWidth && newHeight == component.GridHeight;
+        if (unchanged || !CanPlaceComponentAtPosition(left, top, newWidth, newHeight, component.ComponentID))
         {
-            int newWidth = Math.Max(1, position.X - component.GridX + 1);
-            component.GridWidth = Math.Min(12, newWidth);
+            return;
         }
 
-        if (resizeDirection.Contains("s"))
-        {
-            int newHeight = Math.Max(1, position.Y - component.GridY + 1);
-            component.GridHeight = Math.Max(1, newHeight);
-        }
+        component.GridX = left;
+        component.GridY = top;
+        component.GridWidth = newWidth;
+        component.GridHeight = newHeight;
+        component.LastUpdated = DateTime.UtcNow;
+        lastKeyboardAction = $"Resized to {newWidth}×{newHeight}";
 
         StateHasChanged();
     }
@@ -3754,10 +4679,8 @@
         component.GridY = newY;
         component.LastUpdated = DateTime.UtcNow;
 
-        // Update occupancy map
+        // Update occupancy map (only the card's position changes; its chart is kept)
         UpdateOccupancyMap();
-
-        canvasKey++;
 
         Console.WriteLine($"✅ Moved '{component.Title}' from ({oldX}, {oldY}) to ({newX}, {newY})");
     }
@@ -3765,7 +4688,11 @@
     // Enhanced: OnDragOverCanvas with visual feedback
     private async Task OnDragOverCanvas(DragEventArgs e)
     {
-        if (!isDragging) return;
+        if (!isDragging)
+        {
+            skipNextRender = true;
+            return;
+        }
 
         var position = await CalculateGridPosition(e);
 
@@ -3790,13 +4717,20 @@
             }
         }
 
-        // Update drop indicator style based on availability
+        // Drag-over fires many times per second: re-render only when the indicator changes.
+        if (showDropIndicator && position.X == dropIndicatorX && position.Y == dropIndicatorY &&
+            canPlace == dropIndicatorCanPlace)
+        {
+            skipNextRender = true;
+            return;
+        }
+
+        // The indicator's green/red state is rendered by Blazor (dropIndicatorCanPlace), so no
+        // JavaScript call is needed per mouse move.
         dropIndicatorX = position.X;
         dropIndicatorY = position.Y;
+        dropIndicatorCanPlace = canPlace;
         showDropIndicator = true;
-
-        // Update CSS class for visual feedback
-        await JSRuntime.InvokeVoidAsync("updateDropIndicator", canPlace);
     }
 
     // NEW: Toggle Grid Lines
@@ -3874,42 +4808,6 @@
         public string ErrorMessage { get; set; }
     }
 
-    private class QueryExecutionResult
-    {
-        public bool Success { get; set; }
-        public List<Dictionary<string, object>> Results { get; set; }
-        public string ErrorMessage { get; set; }
-    }
-
-    private class RegenerateComponentRequest
-    {
-        public int DatabaseId { get; set; }
-        public int GridX { get; set; }
-        public int GridY { get; set; }
-        public int GridWidth { get; set; }
-        public int GridHeight { get; set; }
-        public string FailedTitle { get; set; }
-        public string FailedSql { get; set; }
-        public string ErrorMessage { get; set; }
-        public List<string> ExistingTitles { get; set; }
-        public int DataViewingTypeID { get; set; }
-        public string ChartType { get; set; }
-    }
-
-    private class AssistantSuggestionResponse
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; }
-        public List<ComponentSuggestion> Suggestions { get; set; }
-    }
-
-    private class ComponentSuggestion
-    {
-        public string Title { get; set; }
-        public string Description { get; set; }
-        public string SqlTemplate { get; set; }
-    }
-
     private class CanvasBounds
     {
         public double Left { get; set; }
@@ -3921,148 +4819,5 @@
     }
 }
 
-<script suppress-error="BL9992">
-     window.registerKeyboardHandler = function(dotNetHelper) {
-        document.addEventListener('keydown', function(e) {
-            // Skip if typing in input or textarea
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-                return;
-            }
-
-            // Arrow keys - Move/Resize
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-                e.preventDefault();
-                dotNetHelper.invokeMethodAsync('OnArrowKey', e.key, e.shiftKey, e.ctrlKey);
-                return;
-            }
-
-            // Tab - Cycle components
-            if (e.key === 'Tab') {
-                e.preventDefault();
-                dotNetHelper.invokeMethodAsync('OnTabKey', e.shiftKey);
-                return;
-            }
-
-            // Escape - Deselect
-            if (e.key === 'Escape') {
-                dotNetHelper.invokeMethodAsync('OnEscapeKey');
-                return;
-            }
-
-            // Delete - Remove component
-            if (e.key === 'Delete' || (e.key === 'Backspace' && !e.target.isContentEditable)) {
-                e.preventDefault();
-                dotNetHelper.invokeMethodAsync('OnDeleteKey');
-                return;
-            }
-
-            // Ctrl+D - Duplicate
-            if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-                e.preventDefault();
-                dotNetHelper.invokeMethodAsync('OnDuplicateKey');
-                return;
-            }
-
-            // Ctrl+S - Save
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-                dotNetHelper.invokeMethodAsync('OnSaveKey');
-                return;
-            }
-        });
-
-        console.log('⌨️ Keyboard handler registered');
-    };
-
-    // ============================================
-    // ELEMENT BOUNDS HELPER
-    // ============================================
-    window.getElementBounds = function(element) {
-        if (!element) return null;
-        const rect = element.getBoundingClientRect();
-        return {
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
-            scrollLeft: element.scrollLeft || 0,
-            scrollTop: element.scrollTop || 0
-        };
-    };
-
-
-    window.getElementBounds = function(element) {
-        if (!element) return null;
-        const rect = element.getBoundingClientRect();
-        return {
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
-            scrollLeft: element.scrollLeft || 0,
-            scrollTop: element.scrollTop || 0
-        };
-    };
-
-    window.renderDynamicChart = function(componentId, chartType, data, title) {
-        const container = document.querySelector(`#chart-${componentId}`);
-        if (!container || !data || data.length === 0) {
-            console.log(`Chart ${componentId}: No container or data`);
-            return;
-        }
-
-        const columns = Object.keys(data[0]);
-        const xColumn = columns[0];
-        const yColumn = columns[1];
-        const categories = data.map(row => row[xColumn]);
-        const values = data.map(row => parseFloat(row[yColumn]) || 0);
-
-        let options;
-        const colors = ['#667EEA', '#48BB78', '#F6AD55', '#9F7AEA', '#FC8181', '#14B8A6', '#8B5CF6'];
-
-        switch(chartType.toLowerCase()) {
-            case 'pie':
-            case 'donut':
-                options = {
-                    series: values,
-                    chart: { id: `chart-${componentId}`, type: chartType, height: '100%' },
-                    labels: categories,
-                    colors: colors,
-                    legend: { show: true, position: 'bottom', fontSize: '14px' },
-                    dataLabels: { enabled: true, formatter: val => val.toFixed(1) + "%" },
-                    plotOptions: { pie: { donut: { size: chartType === 'donut' ? '65%' : '0%' } } }
-                };
-                break;
-            case 'line':
-            case 'area':
-                options = {
-                    series: [{ name: yColumn, data: values }],
-                    chart: { id: `chart-${componentId}`, type: chartType, height: '100%', toolbar: { show: true } },
-                    stroke: { curve: 'smooth', width: 3 },
-                    xaxis: { categories: categories },
-                    yaxis: { min: 0 },
-                    colors: ['#667EEA'],
-                    fill: { type: chartType === 'area' ? 'gradient' : 'solid', gradient: { opacityFrom: 0.5, opacityTo: 0.1 } },
-                    legend: { show: true, position: 'top' }
-                };
-                break;
-            default:
-                options = {
-                    series: [{ name: yColumn, data: values }],
-                    chart: { id: `chart-${componentId}`, type: 'bar', height: '100%', toolbar: { show: true } },
-                    plotOptions: { bar: { borderRadius: 6, columnWidth: '60%' } },
-                    dataLabels: { enabled: true, offsetY: -20, style: { fontSize: '12px', colors: ['#304758'] } },
-                    xaxis: { categories: categories },
-                    yaxis: { min: 0 },
-                    colors: ['#667EEA'],
-                    legend: { show: false }
-                };
-        }
-
-        const existingChart = ApexCharts.getChartByID(`chart-${componentId}`);
-        if (existingChart) existingChart.destroy();
-
-        const chart = new ApexCharts(container, options);
-        chart.render();
-    };
-</script>
+@* Builder JavaScript lives in wwwroot/JS/dashboard-builder.js (keyboard, drag & drop, resize)
+   and wwwroot/JS/dashboard-charts.js (chart drawing), both loaded by index.html. *@

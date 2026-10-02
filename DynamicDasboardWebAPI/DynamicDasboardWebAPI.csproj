@@ -7,6 +7,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild> -->
     <DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
+    <UserSecretsId>c5c308db-aef2-43e7-beea-067bca247e62</UserSecretsId>
   </PropertyGroup>
 
 

@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Connections;
 using System.Text.Json;
 using static DynamicDashboardCommon.Helper.ApplicationHelper;
 using MySqlX.XDevAPI;
+using System.Data.Common;
+using DynamicDashboardCommon.Enums;
 
 
 namespace DynamicDasboardWebAPI.Services
@@ -26,12 +28,18 @@ namespace DynamicDasboardWebAPI.Services
         private readonly ILLMService _llmService;
         private readonly DatabaseService objDataBaseService;
         private readonly DatabaseSchemaService objSchemaService;
+        private readonly ILogsService _logsService;
+        private readonly int _maxQueryErrorLength;
+        private readonly int _maxResultRows;
+        private readonly int _commandTimeoutSeconds;
 
         public QueryService(
             QueryRepository repository,
             DatabaseService databaseService,
             DatabaseSchemaService schemaService,
-            LLMServiceFactory llmServiceFactory
+            LLMServiceFactory llmServiceFactory,
+            ILogsService logsService,
+            IConfiguration configuration
             )
         {
             _repository = repository ?? throw new ArgumentNullException(nameof(repository));
@@ -41,6 +49,13 @@ namespace DynamicDasboardWebAPI.Services
             _llmService = llmServiceFactory?.CreateLlmService() ?? throw new ArgumentNullException(nameof(llmServiceFactory));
             // Create LLM service using factory
             _llmService = _llmServiceFactory.CreateLlmService();
+            _logsService = logsService ?? throw new ArgumentNullException(nameof(logsService));
+
+            var config = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _maxQueryErrorLength = Math.Max(100, config.GetValue<int>("Query:MaxErrorMessageLength", 1000));
+            _maxResultRows = Math.Max(1, config.GetValue<int>("Query:MaxResultRows", 5000));
+            _commandTimeoutSeconds = Math.Max(5, config.GetValue<int>("Query:CommandTimeoutSeconds", 120));
+
         }
 
         /// <summary>
@@ -152,48 +167,110 @@ namespace DynamicDasboardWebAPI.Services
         }
 
         /// <summary>
-        /// Step 3: Execute the generated SQL and explain the results
+        /// Step 3: Execute the generated SQL and explain the results.
+        /// When the SQL itself fails (unknown column, syntax error, timeout, ...), returns
+        /// Success = false with a readable ErrorMessage instead of throwing, so callers such as
+        /// the Dashboard Builder can show the real reason. The failure is still written to the
+        /// application log (Logs table) as a warning.
         /// </summary>
         /// <param name="request">The execution request with the SQL query</param>
-        /// <returns>Query results with explanation</returns>
+        /// <returns>Query results with explanation, or Success = false with ErrorMessage</returns>
         public async Task<QueryExecutionResponse> ExecuteQueryAsync(SqlExecutionRequest request)
         {
+            List<Dictionary<string, object>> results;
+            bool isTruncated;
+
             try
             {
-                // Execute the query
-                var results = await _repository.ExecuteQueryOnDatabaseAsync(request.Sql, request.DatabaseId);
+                (results, isTruncated) = await ExecuteWithRowLimitAsync(request.Sql, request.DatabaseId);
+            }
+            catch (Exception ex) when (QueryErrorFormatter.IsQueryExecutionFailure(ex))
+            {
+                var errorMessage = QueryErrorFormatter.BuildMessage(ex, _maxQueryErrorLength);
+                await LogWarningAsync(
+                    $"Query failed on database {request.DatabaseId}: {errorMessage}{Environment.NewLine}SQL: {request.Sql}");
 
-                // Generate explanation for the results
-                string explanation = null;
-                if (!string.IsNullOrEmpty(request.OriginalQuestion))
-                {
-                    explanation = await _llmService.GenerateResultExplanationAsync(
-                        request.OriginalQuestion, request.Sql, results);
-                }
-
-                // Determine appropriate data viewing type
-                var (viewingTypeId, viewingTypeName, formattedResult) = DetermineDataViewingType(results, request.Sql);
-
-                // Return execution response
                 return new QueryExecutionResponse
                 {
                     OriginalQuestion = request.OriginalQuestion,
                     DatabaseId = request.DatabaseId,
                     Sql = request.Sql,
-                    Results = results,
-                    ResultExplanation = explanation,
-                    RecommendedDataViewingTypeID = viewingTypeId,
-                    RecommendedDataViewingTypeName = viewingTypeName,
-                    FormattedResult = formattedResult,
-                    Success = true
+                    Results = new List<Dictionary<string, object>>(),
+                    Success = false,
+                    ErrorMessage = errorMessage
                 };
             }
-            catch (Exception ex)
+
+            // The explanation is optional: if the LLM call fails, the results are still returned.
+            string explanation = null;
+            if (!string.IsNullOrEmpty(request.OriginalQuestion))
             {
-                throw;
+                try
+                {
+                    explanation = await _llmService.GenerateResultExplanationAsync(
+                        request.OriginalQuestion, request.Sql, results);
+                }
+                catch (Exception ex) when (QueryErrorFormatter.IsQueryExecutionFailure(ex))
+                {
+                    var errorMessage = QueryErrorFormatter.BuildMessage(ex, _maxQueryErrorLength);
+                    await LogWarningAsync(
+                        $"Result explanation failed for database {request.DatabaseId}: {ex.Message}");
+                }
             }
+
+            // Determine appropriate data viewing type
+            var (viewingTypeId, viewingTypeName, formattedResult) = DetermineDataViewingType(results, request.Sql);
+
+            return new QueryExecutionResponse
+            {
+                OriginalQuestion = request.OriginalQuestion,
+                DatabaseId = request.DatabaseId,
+                Sql = request.Sql,
+                Results = results,
+                ResultExplanation = explanation,
+                RecommendedDataViewingTypeID = viewingTypeId,
+                RecommendedDataViewingTypeName = viewingTypeName,
+                FormattedResult = formattedResult,
+                IsTruncated = isTruncated,
+                RowLimit = _maxResultRows,
+                Success = true
+            };
         }
 
+        /// <summary>
+        /// Runs a query with the configured row limit (Query:MaxResultRows) and timeout
+        /// (Query:CommandTimeoutSeconds). One row more than the limit is requested to know
+        /// whether the result was cut off; that extra row is removed again.
+        /// </summary>
+        private async Task<(List<Dictionary<string, object>> Rows, bool IsTruncated)> ExecuteWithRowLimitAsync(string sql, int databaseId)
+        {
+            var rows = await _repository.ExecuteQueryOnDatabaseAsync(sql, databaseId, _maxResultRows + 1, _commandTimeoutSeconds);
+
+            var isTruncated = rows.Count > _maxResultRows;
+            if (isTruncated)
+            {
+                rows.RemoveRange(_maxResultRows, rows.Count - _maxResultRows);
+            }
+
+            return (rows, isTruncated);
+        }
+
+
+        /// <summary>
+        /// Writes a warning to the application log (Logs table). Logging problems are ignored
+        /// so they can never turn a handled query failure into an error response.
+        /// </summary>
+        private async Task LogWarningAsync(string message)
+        {
+            try
+            {
+                await _logsService.AddLogAsync(null, EnumLoggingType.Warning.ToString(), message);
+            }
+            catch (Exception)
+            {
+                // Logging must not break the query response.
+            }
+        }
         /// <summary>
         /// Combined method for backward compatibility: Analyze, generate SQL, and execute in one step
         /// </summary>
@@ -239,7 +316,7 @@ namespace DynamicDasboardWebAPI.Services
                     null);
 
                 // Execute the query
-                var results = await _repository.ExecuteQueryOnDatabaseAsync(sql, request.DatabaseId);
+                var (results, _) = await ExecuteWithRowLimitAsync(sql, request.DatabaseId);
 
                 // Generate explanation for the results
                 var resultExplanation = await _llmService.GenerateResultExplanationAsync(

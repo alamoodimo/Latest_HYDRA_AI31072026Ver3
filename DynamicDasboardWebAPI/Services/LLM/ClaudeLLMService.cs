@@ -475,18 +475,31 @@ namespace DynamicDasboardWebAPI.Services.LLM
             }
         }
 
-        public async Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt)
+        public Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt)
+        {
+            return GenerateDashboardSuggestionsCoreAsync(systemPrompt, userPrompt, null);
+        }
+
+        /// <summary>
+        /// Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt) with a custom output
+        /// budget for short answers (e.g. a repaired SQL query).
+        /// </summary>
+        public Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt, int maxTokens)
+        {
+            return GenerateDashboardSuggestionsCoreAsync(systemPrompt, userPrompt, maxTokens);
+        }
+
+        /// <summary>Shared implementation; maxTokens = null keeps the provider's configured budget.</summary>
+        private async Task<string> GenerateDashboardSuggestionsCoreAsync(string systemPrompt, string userPrompt, int? maxTokens)
         {
             try
             {
-                // Call Claude API with system and user prompts
-                var response = await CallClaudeApiAsync(systemPrompt, userPrompt);
-
-                return response;
+                // Call DeepSeek API with system and user prompts
+                return await CallClaudeApiAsync(systemPrompt, userPrompt, maxTokens);
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error generating dashboard suggestions with Claude: {ex.Message}", ex);
+                throw new Exception($"Error generating dashboard suggestions with Claude ({_model}): {ex.Message}", ex);
             }
         }
 
@@ -645,10 +658,11 @@ Do NOT generate SQL - only explain what the chart will show.";
 
      
 
-        private async Task<string> CallClaudeApiAsync(string systemPrompt, string userPrompt)
+        private async Task<string> CallClaudeApiAsync(string systemPrompt, string userPrompt, int? maxTokens = null)
         {
             try
             {
+
                 var objSystemPrompt = new List<object>
                 {
 
@@ -672,7 +686,7 @@ Do NOT generate SQL - only explain what the chart will show.";
 }
                 },
                     temperature = 1,
-                    max_tokens = 50000
+                    max_tokens = maxTokens ?? _maxTokens
                 };
 
                 var content = new StringContent(

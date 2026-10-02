@@ -1249,7 +1249,7 @@
             </summary>
             <param name="query">The SQL query to execute.</param>
         </member>
-        <member name="M:DynamicDasboardWebAPI.Repositories.QueryRepository.ExecuteQueryOnDatabaseAsync(System.String,System.Int32)">
+        <member name="M:DynamicDasboardWebAPI.Repositories.QueryRepository.ExecuteQueryOnDatabaseAsync(System.String,System.Int32,System.Nullable{System.Int32},System.Nullable{System.Int32})">
             <summary>
             Executes a query on a specific (dynamic) database using its ID.
             </summary>
@@ -1700,13 +1700,97 @@
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.AssistantService.RegenerateComponentAsync(DynamicDashboardCommon.Models.RegenerateComponentRequest)">
             <summary>
-            Regenerates a single failed component with new title, SQL, and optionally different type
+            Regenerates one dashboard component. Two modes (request.Mode):
+            - Repair ("Fix with AI" on a failed or empty card): keeps the title, purpose and type and
+              returns corrected SQL that was test-run and returns data (ComponentSqlRepairService).
+              If no working SQL is found, Success = false and the component should stay unchanged.
+            - Alternative (the user wants something else): a different component of the same type;
+              its SQL is also test-run and, if needed, repaired before it is returned.
+            Clients that do not send Mode: inferred from ErrorMessage (see ResolveRegenerationMode).
             </summary>
         </member>
-        <member name="M:DynamicDasboardWebAPI.Services.AssistantService.GetDbSyntaxGuidance(System.String)">
+        <member name="M:DynamicDasboardWebAPI.Services.AssistantService.ResolveRegenerationMode(DynamicDashboardCommon.Models.RegenerateComponentRequest)">
             <summary>
-            Returns database-specific SQL syntax guidance for the LLM.
+            Uses the mode the client sent. Older clients send none: a real error message means the
+            component failed (Repair); an empty message or a "user requested" message means the user
+            wants a different component (Alternative).
             </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.AssistantService.RepairComponentAsync(DynamicDashboardCommon.Models.RegenerateComponentRequest)">
+            <summary>
+            Repair mode: same title, description and type; only the SQL changes, and only to SQL that
+            was test-run successfully.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.AssistantService.GenerateAlternativeComponentAsync(DynamicDashboardCommon.Models.RegenerateComponentRequest)">
+            <summary>
+            Alternative mode: asks the AI for a different component of the same type, then makes sure
+            its SQL works (test-run, repaired if needed) before returning it.
+            </summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.ComponentSqlRepairService">
+             <summary>
+             Checks and repairs the SQL of a single dashboard component.
+            
+             Check: runs the SQL with a 1-row limit and a short timeout. It passes when it is a single
+             read-only SELECT, runs without error, and returns at least one row.
+            
+             Repair: asks the LLM for corrected SQL that keeps the component's purpose and type, based on
+             the real problem (the database error, or "returned no rows"), then checks the result.
+             Repeats up to DashboardAI:MaxSqlRepairAttempts times; each attempt and its problem are sent
+             back to the LLM so it does not repeat a failed idea.
+            
+             Time limit: the whole repair stops waiting for the LLM after DashboardAI:RepairTimeoutSeconds
+             (default 60) and reports that the provider is busy, instead of waiting for the HTTP timeout.
+            
+             Used by "Fix with AI" (AssistantService) and by generation-time checks
+             (DashboardGenerationService), so both repair SQL the same way.
+             </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.ValidateAsync(System.String,System.Int32)">
+            <inheritdoc />
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.RepairAsync(DynamicDashboardCommon.Models.ComponentSqlRepairRequest)">
+            <inheritdoc />
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.LlmCallOutcome">
+            <summary>Outcome of one LLM call made under a time limit.</summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.CallLlmWithTimeLimitAsync(System.String,System.String,System.TimeSpan)">
+            <summary>
+            Calls the LLM but stops waiting after <paramref name="timeLimit"/>. The provider interface has
+            no cancellation support, so a call that runs over ends on its own in the background; its
+            outcome is observed so a late failure is never reported as an unobserved task exception.
+            An HTTP timeout raised by the provider itself is also treated as "did not answer in time".
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.TimedOutAsync(DynamicDashboardCommon.Models.ComponentSqlRepairRequest,System.String,System.Int32,DynamicDashboardCommon.Models.ComponentSqlValidationResult,System.Boolean)">
+            <summary>
+            Result for a repair that ran out of time. The original SQL is kept, a warning is logged,
+            and the message names the provider so the user knows the AI service is busy, not the app.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.IsTimeout(System.Exception)">
+            <summary>True when the exception chain contains a timeout or a cancellation (e.g. HttpClient.Timeout).</summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.GetResultShapeRule(System.Int32,System.String)">
+            <summary>Expected result columns per component type (matches how the builder draws them).</summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.ParseRepairResponse(System.String)">
+            <summary>
+            Reads {"sql": "...", "explanation": "..."} from the LLM response. Falls back to a ```sql
+            block or to plain text starting with SELECT/WITH. Trailing semicolons are removed
+            (some providers reject them).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.IsSingleReadOnlySelect(System.String)">
+            <summary>
+            True for one SELECT (or WITH ... SELECT) statement without data-changing keywords.
+            Text inside string literals is ignored, so values like 'Deleted' do not count.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.ComponentSqlRepairService.LogWarningAsync(System.String)">
+            <summary>Writes a warning to the application log; logging problems never break a repair.</summary>
         </member>
         <member name="T:DynamicDasboardWebAPI.Services.IAssistantService">
             <summary>
@@ -1726,6 +1810,24 @@
             </summary>
             <param name="request">Request containing failed component info</param>
             <returns>Single new component suggestion</returns>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.IComponentSqlRepairService">
+            <summary>
+            Checks and repairs the SQL of a single dashboard component.
+            Shared by the Dashboard Builder's "Fix with AI" and by dashboard generation.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.IComponentSqlRepairService.ValidateAsync(System.String,System.Int32)">
+            <summary>
+            Runs the SQL with a 1-row limit and a short timeout. Valid when it runs, is a single
+            read-only SELECT, and returns at least one row.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.IComponentSqlRepairService.RepairAsync(DynamicDashboardCommon.Models.ComponentSqlRepairRequest)">
+            <summary>
+            Returns working SQL for the component: the current SQL when it already works, otherwise
+            SQL corrected by the AI (same purpose and type), checked after every attempt.
+            </summary>
         </member>
         <member name="T:DynamicDasboardWebAPI.Services.DashboardGenerationService">
             <summary>
@@ -1752,11 +1854,6 @@
             Builds intelligent system and user prompts for LLM dashboard generation.
             </summary>
         </member>
-        <member name="M:DynamicDasboardWebAPI.Services.DashboardGenerationService.GetDbSyntaxGuidance(System.String)">
-            <summary>
-            Returns database-specific SQL syntax guidance for the LLM.
-            </summary>
-        </member>
         <member name="M:DynamicDasboardWebAPI.Services.DashboardGenerationService.ParseAndBuildDashboard(System.String,DynamicDashboardCommon.Models.DashboardTemplate,System.Int32)">
             <summary>
             Parses the LLM response and builds a DashboardModel.
@@ -1771,6 +1868,29 @@
             <summary>
             Generates suggested questions based on database schema
             </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.DashboardGenerationService.ValidateAndRepairComponentsAsync(DynamicDashboardCommon.Models.DashboardModel,System.Int32)">
+             <summary>
+             Option A: every generated query is test-run (1 row) before the dashboard is returned.
+             Queries that fail or return no rows are repaired by the shared ComponentSqlRepairService
+             (same title, purpose and type), so the dashboard arrives with working components.
+            
+             - Checks run in parallel (DashboardAI:MaxParallelValidations). The first check runs alone
+               so the database's connection details are cached before parallel connections open.
+             - Repairs run one at a time, because each one calls the LLM.
+             - Repairs stop after DashboardAI:MaxGenerationRepairs components or once
+               DashboardAI:GenerationRepairBudgetSeconds have passed, so generation stays well within
+               the frontend's request timeout. Anything left is shown on its card in the builder,
+               with "Fix with AI".
+             - This step never fails the generation: on an unexpected error the dashboard is returned
+               as generated and the problem is logged.
+             </summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Services.DashboardGenerationService.GeneratedQueryCheck">
+            <summary>A generated component and the result of test-running its query.</summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.DashboardGenerationService.LogAsync(DynamicDashboardCommon.Enums.EnumLoggingType,System.String)">
+            <summary>Writes to the application log; logging problems never break generation.</summary>
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.DashboardGenerationService.GetMockLLMResponse(DynamicDashboardCommon.Models.DashboardTemplate)">
             <summary>
@@ -1798,10 +1918,27 @@
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.QueryService.ExecuteQueryAsync(DynamicDashboardCommon.Models.SqlExecutionRequest)">
             <summary>
-            Step 3: Execute the generated SQL and explain the results
+            Step 3: Execute the generated SQL and explain the results.
+            When the SQL itself fails (unknown column, syntax error, timeout, ...), returns
+            Success = false with a readable ErrorMessage instead of throwing, so callers such as
+            the Dashboard Builder can show the real reason. The failure is still written to the
+            application log (Logs table) as a warning.
             </summary>
             <param name="request">The execution request with the SQL query</param>
-            <returns>Query results with explanation</returns>
+            <returns>Query results with explanation, or Success = false with ErrorMessage</returns>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.QueryService.ExecuteWithRowLimitAsync(System.String,System.Int32)">
+            <summary>
+            Runs a query with the configured row limit (Query:MaxResultRows) and timeout
+            (Query:CommandTimeoutSeconds). One row more than the limit is requested to know
+            whether the result was cut off; that extra row is removed again.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.QueryService.LogWarningAsync(System.String)">
+            <summary>
+            Writes a warning to the application log (Logs table). Logging problems are ignored
+            so they can never turn a handled query failure into an error response.
+            </summary>
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.QueryService.ProcessNaturalLanguageQueryAsync(DynamicDashboardCommon.Models.NlQueryRequest)">
             <summary>
@@ -3039,6 +3176,15 @@
         <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.GenerateSchemaAnalysisAsync(System.String)">
             <inheritdoc/>
         </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.GenerateDashboardSuggestionsAsync(System.String,System.String,System.Int32)">
+            <summary>
+            Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt) with a custom output
+            budget for short answers (e.g. a repaired SQL query).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.GenerateDashboardSuggestionsCoreAsync(System.String,System.String,System.Nullable{System.Int32})">
+            <summary>Shared implementation; maxTokens = null keeps the provider's configured budget.</summary>
+        </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.ClaudeLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
             <summary>
             Finish-reason-aware schema analysis call for Claude. Returns both the content
@@ -3086,7 +3232,16 @@
         <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.GenerateTermSuggestionsAsync(System.String)">
             <inheritdoc/>
         </member>
-        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.CallDatabricksApiAsync(System.String,System.String)">
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.GenerateDashboardSuggestionsAsync(System.String,System.String,System.Int32)">
+            <summary>
+            Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt) with a custom output
+            budget for short answers (e.g. a repaired SQL query).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.GenerateDashboardSuggestionsCoreAsync(System.String,System.String,System.Nullable{System.Int32})">
+            <summary>Shared implementation; maxTokens = null keeps the provider's configured budget.</summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DatabricksLLMService.CallDatabricksApiAsync(System.String,System.String,System.Nullable{System.Int32})">
             <summary>
             Calls the Databricks API with the given system and user prompts.
             </summary>
@@ -3140,6 +3295,15 @@
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.GenerateChartExplanationAsync(System.String,System.String)">
             <inheritdoc/>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.GenerateDashboardSuggestionsAsync(System.String,System.String,System.Int32)">
+            <summary>
+            Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt) with a custom output
+            budget for short answers (e.g. a repaired SQL query).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.GenerateDashboardSuggestionsCoreAsync(System.String,System.String,System.Nullable{System.Int32})">
+            <summary>Shared implementation; maxTokens = null keeps the provider's configured budget.</summary>
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.DeepSeekLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
             <summary>
@@ -3249,6 +3413,13 @@
             <param name="userPrompt">The user prompt with dashboard context and schema</param>
             <returns>JSON array of component suggestions</returns>
         </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.ILLMService.GenerateDashboardSuggestionsAsync(System.String,System.String,System.Int32)">
+            <summary>
+            Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt), with a custom output
+            budget for short answers (e.g. a repaired SQL query), so long-winded answers are cut short.
+            </summary>
+            <param name="maxTokens">Maximum number of tokens the model may generate for this call.</param>
+        </member>
         <member name="T:DynamicDasboardWebAPI.Services.LLM.LLMServiceFactory">
             <summary>
             Factory for creating LLM service instances based on configuration
@@ -3282,6 +3453,15 @@
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.GenerateTermSuggestionsAsync(System.String)">
             <inheritdoc/>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.GenerateDashboardSuggestionsAsync(System.String,System.String,System.Int32)">
+            <summary>
+            Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt) with a custom output
+            budget for short answers (e.g. a repaired SQL query).
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.GenerateDashboardSuggestionsCoreAsync(System.String,System.String,System.Nullable{System.Int32})">
+            <summary>Shared implementation; maxTokens = null keeps the provider's configured budget.</summary>
         </member>
         <member name="M:DynamicDasboardWebAPI.Services.LLM.SQLCoderLLMService.GenerateSchemaAnalysisWithFinishReasonAsync(System.String)">
             <summary>
@@ -3930,9 +4110,17 @@
             Executes an operation with proper connection management (no return value)
             </summary>
         </member>
-        <member name="M:DynamicDasboardWebAPI.Utilities.DatabaseHelper.ExecuteQueryAsDictionariesAsync(System.Data.IDbConnection,System.String,System.Object,System.Data.IDbTransaction,System.Int32)">
+        <member name="M:DynamicDasboardWebAPI.Utilities.DatabaseHelper.ExecuteQueryAsDictionariesAsync(System.Data.IDbConnection,System.String,System.Object,System.Data.IDbTransaction,System.Int32,System.Nullable{System.Int32})">
             <summary>
             Executes a query and returns the results as a list of dictionaries
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Utilities.DatabaseHelper.ReadRowsWithLimitAsync(System.Data.Common.DbConnection,System.String,System.Data.Common.DbTransaction,System.Int32,System.Int32)">
+            <summary>
+            Reads at most <paramref name="maxRows"/> rows, one at a time, so a large result is never
+            loaded into memory. When the limit is reached the command is cancelled, so the server
+            stops sending the remaining rows (instead of the driver reading and discarding them
+            when the reader closes).
             </summary>
         </member>
         <member name="M:DynamicDasboardWebAPI.Utilities.DatabaseHelper.ConvertToDictionaries(System.Collections.Generic.IEnumerable{System.Object})">
@@ -4172,6 +4360,56 @@
             </summary>
             <param name="databaseId">Database ID</param>
             <param name="status">Connection status</param>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Utilities.QueryErrorFormatter">
+            <summary>
+            Turns failures from running a SQL query into messages a user can act on.
+            Shared by QueryService (query execution) and ComponentSqlRepairService (SQL checks),
+            so both report errors the same way.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Utilities.QueryErrorFormatter.IsQueryExecutionFailure(System.Exception)">
+            <summary>
+            True for failures caused by running the SQL itself: a database error from any
+            provider (SQL Server, PostgreSQL, MySQL, Oracle all derive from DbException),
+            a timeout, or the wrapper DatabaseHelper throws around them.
+            Other failures (configuration, programming errors) are not query failures.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Utilities.QueryErrorFormatter.BuildMessage(System.Exception,System.Int32)">
+            <summary>
+            Builds a message a user can act on: the database's own error text
+            (e.g. "Invalid column name 'Revenue'.") without technical prefixes, plus
+            DatabaseHelper's provider-specific hint ("Note: ...") when there is one.
+            The result is cut to <paramref name="maxLength"/> characters.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Utilities.QueryErrorFormatter.FindException``1(System.Exception)">
+            <summary>Returns the first exception of type T in the exception chain, or null.</summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Utilities.SchemaPromptBuilder">
+            <summary>
+            Builds the compact schema text placed in LLM prompts.
+            Tables whose names appear in <c>relevantText</c> (usually the current SQL and the title) are
+            listed first, then the remaining active tables until <c>maxTables</c> is reached, so very
+            large databases stay within the prompt budget. Every listed table shows ALL its active
+            columns with their data types, so the AI never has to guess a column name.
+            Shared by ComponentSqlRepairService and AssistantService.
+            </summary>
+        </member>
+        <member name="T:DynamicDasboardWebAPI.Utilities.SqlDialectGuidance">
+            <summary>
+            SQL syntax rules per database type, added to LLM prompts so generated SQL matches the
+            target database (SQL Server, MySQL, PostgreSQL, Oracle).
+            Single shared copy: AssistantService and DashboardGenerationService each had an identical
+            private GetDbSyntaxGuidance method; both switch to this class in the next steps.
+            </summary>
+        </member>
+        <member name="M:DynamicDasboardWebAPI.Utilities.SqlDialectGuidance.For(System.String)">
+            <summary>
+            Returns the syntax rules for a database type name (e.g. "SQL Server", "PostgreSQL").
+            Unknown or empty names fall back to SQL Server.
+            </summary>
         </member>
     </members>
 </doc>

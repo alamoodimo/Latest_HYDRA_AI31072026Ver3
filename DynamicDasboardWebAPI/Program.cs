@@ -126,12 +126,17 @@ builder.Services.AddScoped<IDashboardGenerationService>(provider =>
 
     var templatesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Templates", "dashboard-templates.json");
 
-    return new DashboardGenerationService(llmService, schemaService, databaseService, logsService, templatesPath, configuration);
+    var repairService = provider.GetRequiredService<IComponentSqlRepairService>();
+
+    return new DashboardGenerationService(llmService, schemaService, databaseService, logsService, templatesPath, configuration, repairService);
 });
 
 
 //builder.Services.AddScoped<SequentialSchemaAnalysisService>();
 builder.Services.AddScoped<SampleDataService>();
+
+// Shared SQL check + AI repair for dashboard components (used by AssistantService and generation)
+builder.Services.AddScoped<IComponentSqlRepairService, ComponentSqlRepairService>();
 
 builder.Services.AddScoped<IAssistantService>(provider =>
 {
@@ -139,8 +144,10 @@ builder.Services.AddScoped<IAssistantService>(provider =>
     var llmService = provider.GetRequiredService<ILLMService>();
     var schemaService = provider.GetRequiredService<DatabaseSchemaService>();
     var databaseService = provider.GetRequiredService<DatabaseService>(); // NEW
+    var repairService = provider.GetRequiredService<IComponentSqlRepairService>();
+    var configuration = provider.GetRequiredService<IConfiguration>();
 
-    return new AssistantService(logsService, llmService, schemaService, databaseService);
+    return new AssistantService(logsService, llmService, schemaService, databaseService, repairService, configuration);
 });
 
 //builder.Services.AddScoped<IReportService, ReportService>();

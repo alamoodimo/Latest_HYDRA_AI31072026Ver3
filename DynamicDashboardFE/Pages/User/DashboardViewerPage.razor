@@ -7,6 +7,10 @@
 @inject NavigationManager NavigationManager
 @inject IToastService ToastService
 @inject IJSRuntime JSRuntime
+@inject IConfiguration Configuration
+@using Microsoft.Extensions.Configuration
+@using DynamicDashboardCommon.Helper
+@implements IAsyncDisposable
 
 <PageTitle>@dashboardTitle - Dashboard Viewer</PageTitle>
 
@@ -136,7 +140,7 @@
                     <div class="kpi-row">
                         @foreach (var kpi in kpiComponents)
                         {
-                            <div class="kpi-card @GetKPIColorClass(kpi.ComponentID)">
+                            <div class="kpi-card @GetKPIColorClass(kpi.ComponentID)" @key="kpi.ComponentID">
                                 <div class="kpi-header">
                                     <span class="kpi-label">@kpi.Title.ToUpper()</span>
                                     <i class="kpi-icon fas fa-@GetComponentIcon(kpi.DataViewingTypeID)"></i>
@@ -149,7 +153,9 @@
                                     else if (componentErrors.ContainsKey(kpi.ComponentID))
                                     {
                                         <h2 class="kpi-value">--</h2>
-                                        <span class="kpi-error">Error</span>
+                                        <span class="kpi-error" title="@componentErrors[kpi.ComponentID]">
+                                            <i class="fas fa-exclamation-circle me-1"></i>Query failed
+                                        </span>
                                     }
                                     else
                                     {
@@ -176,7 +182,7 @@
                         @foreach (var chart in chartComponents)
                         {
                             var chartClass = chart == chartComponents.First() ? "chart-large" : "chart-medium";
-                            <div class="chart-card @chartClass">
+                            <div class="chart-card @chartClass" @key="chart.ComponentID">
                                 <div class="chart-header">
                                     <div class="chart-title-section">
                                         <h3>@chart.Title</h3>
@@ -227,7 +233,39 @@
                                         }
                                     </div>
                                 </div>
-                                <div id="chart-@chart.ComponentID" style="height: @(chart == chartComponents.First() ? "350px" : "300px");"></div>
+                                @* Fixed-height body: the shared chart renderer sizes the chart to it. *@
+                                <div class="viewer-chart-body" style="height: @(chart == chartComponents.First() ? "350px" : "300px");">
+                                    @if (IsComponentLoading(chart.ComponentID))
+                                    {
+                                        <div class="viewer-state">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                            <span>Loading data...</span>
+                                        </div>
+                                    }
+                                    else if (componentErrors.ContainsKey(chart.ComponentID))
+                                    {
+                                        <div class="viewer-state viewer-state-error">
+                                            <i class="fas fa-exclamation-triangle"></i>
+                                            <strong>Query failed</strong>
+                                            <small title="@componentErrors[chart.ComponentID]">@componentErrors[chart.ComponentID]</small>
+                                            <button type="button" class="viewer-state-btn" @onclick="() => RefreshComponent(chart)">
+                                                <i class="fas fa-redo me-1"></i>Retry
+                                            </button>
+                                        </div>
+                                    }
+                                    else if (componentData.TryGetValue(chart.ComponentID, out var chartRows) && chartRows.Count == 0)
+                                    {
+                                        <div class="viewer-state">
+                                            <i class="fas fa-inbox"></i>
+                                            <strong>No rows returned</strong>
+                                            <small>The query ran successfully but returned no data.</small>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div id="chart-@chart.ComponentID" class="viewer-chart-canvas"></div>
+                                    }
+                                </div>
                             </div>
                         }
                     </div>
@@ -240,7 +278,7 @@
                 {
                     @foreach (var table in tableComponents)
                     {
-                        <div class="table-card">
+                        <div class="table-card" @key="table.ComponentID">
                             <div class="table-header">
                                 <div class="table-title-section">
                                     <h3>@table.Title</h3>
@@ -272,9 +310,13 @@
                             <div class="table-container">
                                 @if (componentErrors.ContainsKey(table.ComponentID))
                                 {
-                                    <div class="component-error">
+                                    <div class="viewer-state viewer-state-error">
                                         <i class="fas fa-exclamation-triangle"></i>
-                                        <p>@componentErrors[table.ComponentID]</p>
+                                        <strong>Query failed</strong>
+                                        <small title="@componentErrors[table.ComponentID]">@componentErrors[table.ComponentID]</small>
+                                        <button type="button" class="viewer-state-btn" @onclick="() => RefreshComponent(table)">
+                                            <i class="fas fa-redo me-1"></i>Retry
+                                        </button>
                                     </div>
                                 }
                                 else
@@ -318,18 +360,84 @@
     private Dictionary<int, string> componentErrors = new Dictionary<int, string>();
     private List<ComponentParameter> dashboardFilters = new List<ComponentParameter>();
 
+    // Components whose result stopped at the server row limit (Query:MaxResultRows): componentId -> limit
+    private readonly Dictionary<int, int> serverRowLimits = new Dictionary<int, int>();
+
+    // Charts waiting to be drawn after the next render (wwwroot/JS/dashboard-charts.js draws them)
+    private readonly HashSet<int> pendingChartRenders = new HashSet<int>();
+
+    // Settings (wwwroot/appsettings.json, section "DashboardViewer"; defaults apply when absent)
+    private int maxParallelDataLoads = 4;
+
     // Color rotation for KPIs
     private string[] kpiColors = new[] { "kpi-blue", "kpi-green", "kpi-purple", "kpi-orange", "kpi-teal" };
 
     protected override async Task OnInitializedAsync()
     {
+        maxParallelDataLoads = int.TryParse(Configuration?["DashboardViewer:MaxParallelDataLoads"], out var configured) && configured > 0
+            ? configured
+            : 4;
+
         await LoadDashboard();
     }
 
+    /// <summary>
+    /// Draws the charts queued since the last render. Runs after the render that put each chart
+    /// area on the page; the shared renderer also waits briefly if Blazor is still updating it.
+    /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Charts now render after data loads in LoadAllComponentsData
-        // No need to render here
+        if (pendingChartRenders.Count == 0 || dashboard?.Components == null) return;
+
+        var renderIds = pendingChartRenders.ToList();
+        pendingChartRenders.Clear();
+
+        var drawTasks = new List<Task>();
+        foreach (var id in renderIds)
+        {
+            var component = dashboard.Components.FirstOrDefault(c => c.ComponentID == id);
+            if (component == null || component.DataViewingTypeID != (int)DataViewingTypeEnum.Chart || !component.IsVisible) continue;
+            if (IsComponentLoading(id) || componentErrors.ContainsKey(id)) continue;
+            if (!componentData.TryGetValue(id, out var rows) || rows == null || rows.Count == 0) continue;
+
+            drawTasks.Add(DrawChartAsync(component, rows));
+        }
+
+        await Task.WhenAll(drawTasks);
+    }
+
+    private async Task DrawChartAsync(DashboardComponent component, List<Dictionary<string, object>> rows)
+    {
+        try
+        {
+            var chartType = chartTypes.TryGetValue(component.ComponentID, out var selected)
+                ? selected
+                : (string.IsNullOrWhiteSpace(component.ChartType) ? GetChartType(component.VisualizationConfig) : component.ChartType);
+
+            await JSRuntime.InvokeAsync<bool>("DashboardCharts.render",
+                component.ComponentID, chartType, rows, component.Title);
+        }
+        catch (JSException ex)
+        {
+            Console.WriteLine($"Chart {component.ComponentID} could not be drawn: {ex.Message}");
+        }
+    }
+
+    /// <summary>Releases every chart this page drew when the user leaves it.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("DashboardCharts.destroyAll");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The page is unloading; nothing left to clean up.
+        }
+        catch (JSException ex)
+        {
+            Console.WriteLine($"Viewer cleanup: {ex.Message}");
+        }
     }
 
     private async Task LoadDashboard()
@@ -389,16 +497,27 @@
 
         try
         {
+            // At most MaxParallelDataLoads queries at a time; each chart is queued when its data arrives.
+            using var throttler = new SemaphoreSlim(maxParallelDataLoads);
+
             var tasks = dashboard.Components
                 .Where(c => c.IsVisible && c.DataViewingTypeID != (int)DataViewingTypeEnum.Label)
-                .Select(c => LoadComponentDataAsync(c));
+                .Select(async component =>
+                {
+                    await throttler.WaitAsync();
+                    try
+                    {
+                        await LoadComponentDataAsync(component);
+                    }
+                    finally
+                    {
+                        throttler.Release();
+                    }
+                })
+                .ToList();
 
             await Task.WhenAll(tasks);
-
-            // ⚡ THESE 3 LINES ARE CRITICAL
             StateHasChanged();
-            await Task.Delay(200);
-            await RenderAllCharts();
         }
         catch (Exception ex)
         {
@@ -406,21 +525,26 @@
         }
     }
 
+    /// <summary>
+    /// Runs one component's SQL. Success stores the rows (charts are queued for drawing); failure
+    /// stores the real error message from the API, shown on the card instead of "No data available".
+    /// </summary>
     private async Task LoadComponentDataAsync(DashboardComponent component)
     {
+        var componentId = component.ComponentID;
+
         if (string.IsNullOrEmpty(component.QueryText))
         {
-            componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+            componentData[componentId] = new List<Dictionary<string, object>>();
             return;
         }
 
         try
         {
-            isComponentLoading[component.ComponentID] = true;
-            componentErrors.Remove(component.ComponentID);
+            isComponentLoading[componentId] = true;
+            componentErrors.Remove(componentId);
             StateHasChanged();
 
-            // Create request payload
             var request = new SqlExecutionRequest
             {
                 OriginalQuestion = "",
@@ -428,41 +552,44 @@
                 Sql = component.QueryText
             };
 
-            // Execute query via backend API
-            var response = await Http.PostAsJsonAsync("api/query/execute", request);
+            using var response = await Http.PostAsJsonAsync("api/query/execute", request);
+            var result = await QueryResultHelper.ReadQueryExecutionResponseAsync(response);
 
-            if (response.IsSuccessStatusCode)
+            if (result.Success)
             {
-                var result = await response.Content.ReadFromJsonAsync<QueryExecutionResponse>();
+                componentData[componentId] = result.Results ?? new List<Dictionary<string, object>>();
 
-                if (result != null && result.Success && result.Results != null)
+                if (result.IsTruncated && result.RowLimit.HasValue)
                 {
-                    componentData[component.ComponentID] = result.Results;
-                    Console.WriteLine($"Component {component.ComponentID} loaded with {result.Results.Count} rows");
+                    serverRowLimits[componentId] = result.RowLimit.Value;
                 }
                 else
                 {
-                    componentErrors[component.ComponentID] = "No data available";
-                    componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+                    serverRowLimits.Remove(componentId);
                 }
             }
             else
             {
-                var error = await response.Content.ReadAsStringAsync();
-                componentErrors[component.ComponentID] = "No data available";
-                componentData[component.ComponentID] = new List<Dictionary<string, object>>();
-                Console.WriteLine($"Error loading component {component.ComponentID}: {error}");
+                componentErrors[componentId] = result.ErrorMessage;
+                componentData.Remove(componentId);
+                serverRowLimits.Remove(componentId);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception loading component {component.ComponentID}: {ex.Message}");
-            componentErrors[component.ComponentID] = ex.Message;
-            componentData[component.ComponentID] = new List<Dictionary<string, object>>();
+            componentErrors[componentId] = $"Could not load data: {ex.Message}";
+            componentData.Remove(componentId);
+            serverRowLimits.Remove(componentId);
         }
         finally
         {
-            isComponentLoading[component.ComponentID] = false;
+            isComponentLoading[componentId] = false;
+
+            if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+            {
+                pendingChartRenders.Add(componentId);
+            }
+
             StateHasChanged();
         }
     }
@@ -477,9 +604,16 @@
             StateHasChanged();
 
             await LoadAllComponentsData();
-            await RenderAllCharts();
 
-            ToastService.ShowSuccess("Dashboard refreshed successfully");
+            var failedCount = dashboard.Components.Count(c => componentErrors.ContainsKey(c.ComponentID));
+            if (failedCount == 0)
+            {
+                ToastService.ShowSuccess("Dashboard refreshed successfully");
+            }
+            else
+            {
+                ToastService.ShowWarning($"Dashboard refreshed. {failedCount} component(s) could not load - each shows the reason.");
+            }
         }
         finally
         {
@@ -490,15 +624,17 @@
 
     private async Task RefreshComponent(DashboardComponent component)
     {
+        // Loading the data also queues the chart drawing.
         await LoadComponentDataAsync(component);
 
-        // Re-render chart if it's a chart component
-        if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+        if (componentErrors.TryGetValue(component.ComponentID, out var error))
         {
-            await RenderChart(component);
+            ToastService.ShowError($"{component.Title}: {error}");
         }
-
-        ToastService.ShowSuccess($"{component.Title} refreshed");
+        else
+        {
+            ToastService.ShowSuccess($"{component.Title} refreshed");
+        }
     }
 
     private RenderFragment RenderTableWithPagination(int componentId)
@@ -511,7 +647,7 @@
             {
                 builder.OpenElement(0, "div");
                 builder.AddAttribute(1, "class", "text-center py-4 text-muted");
-                builder.AddContent(2, "No data available");
+                builder.AddContent(2, "The query ran successfully but returned no rows.");
                 builder.CloseElement();
                 return;
             }
@@ -566,7 +702,9 @@
 
             builder.OpenElement(17, "small");
             builder.AddAttribute(18, "class", "text-muted");
-            builder.AddContent(19, $"Page {currentPage} of {totalPages} ({data.Count} total records)");
+            builder.AddContent(19, serverRowLimits.TryGetValue(componentId, out var rowLimit)
+                ? $"Page {currentPage} of {totalPages} (first {data.Count:N0} records - server row limit of {rowLimit:N0} reached)"
+                : $"Page {currentPage} of {totalPages} ({data.Count:N0} total records)");
             builder.CloseElement();
 
             builder.OpenElement(20, "div");
@@ -695,8 +833,8 @@
         if (!componentData.ContainsKey(componentId) || !componentData[componentId].Any())
             return "--";
             
-        var data = componentData[componentId];
-        var value = data[0].Values.FirstOrDefault();
+        // First numeric value of the first row (shared rule with the Dashboard Builder)
+        var value = QueryResultHelper.GetKpiValue(componentData[componentId]);
 
         return FormatNumericValue(value, component);
     }
@@ -954,40 +1092,26 @@
             : new List<Dictionary<string, object>>();
     }
 
-    private async Task RenderAllCharts()
+    /// <summary>Requests a redraw of every chart that has data (drawn after the next render).</summary>
+    private Task RenderAllCharts()
     {
-        var chartComponents = dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart && c.IsVisible);
-
-        foreach (var chart in chartComponents)
+        foreach (var chart in dashboard.Components.Where(c => c.DataViewingTypeID == (int)DataViewingTypeEnum.Chart && c.IsVisible))
         {
-            await RenderChart(chart);
+            pendingChartRenders.Add(chart.ComponentID);
         }
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
-    private async Task RenderChart(DashboardComponent component)
+    /// <summary>Requests a redraw of one chart (drawn after the next render).</summary>
+    private Task RenderChart(DashboardComponent component)
     {
-        if (!componentData.ContainsKey(component.ComponentID) || !componentData[component.ComponentID].Any())
-            return;
-
-        var data = componentData[component.ComponentID];
-
-        // Use user-selected type or default from config
-        var chartType = chartTypes.ContainsKey(component.ComponentID)
-            ? chartTypes[component.ComponentID]
-            : GetChartType(component.VisualizationConfig);
-
-        try
+        if (component != null)
         {
-            await JSRuntime.InvokeVoidAsync("renderDynamicChart",
-                component.ComponentID,
-                chartType,
-                data,
-                component.Title);
+            pendingChartRenders.Add(component.ComponentID);
+            StateHasChanged();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error rendering chart {component.ComponentID}: {ex.Message}");
-        }
+        return Task.CompletedTask;
     }
 
     private string GetChartType(string visualizationConfig)
@@ -1033,23 +1157,14 @@
     {
         chartTypes[componentId] = newType;
         activeChartMenu = null;
-        await RenderChart(dashboard.Components.First(c => c.ComponentID == componentId));
+
+        var component = dashboard.Components.FirstOrDefault(c => c.ComponentID == componentId);
+        if (component != null)
+        {
+            await RenderChart(component);
+        }
     }
 
-    // Helper classes
-    private class SqlExecutionRequest
-    {
-        public string OriginalQuestion { get; set; }
-        public int DatabaseId { get; set; }
-        public string Sql { get; set; }
-    }
-
-    private class QueryExecutionResponse
-    {
-        public bool Success { get; set; }
-        public List<Dictionary<string, object>> Results { get; set; }
-        public string ResultExplanation { get; set; }
-    }
 
     //     private int GetGridHeight()
     // {
@@ -1061,308 +1176,5 @@
 
 }
 
-
-
-<script suppress-error="BL9992">
-    // Enhanced chart rendering with legends and better visuals
-    window.renderDynamicChart = function(componentId, chartType, data, title) {
-        const container = document.querySelector(`#chart-${componentId}`);
-        if (!container || !data || data.length === 0) {
-            console.log(`Chart ${componentId}: No container or data`);
-            return;
-        }
-
-        console.log(`Rendering chart ${componentId} with type ${chartType}`);
-
-        // Get column names from first row
-        const columns = Object.keys(data[0]);
-        const xColumn = columns[0];
-        const yColumn = columns[1];
-
-        // Extract data
-        const categories = data.map(row => row[xColumn]);
-        const values = data.map(row => row[yColumn]);
-
-        let options;
-
-        switch(chartType.toLowerCase()) {
-            case 'line':
-            case 'area':
-                options = {
-                    series: [{
-                        name: yColumn,
-                        data: values
-                    }],
-                    chart: {
-                        id: `chart-${componentId}`,
-                        type: chartType,
-                        height: '100%',
-                        toolbar: {
-                            show: true,
-                            tools: {
-                                download: true,
-                                selection: false,
-                                zoom: true,
-                                zoomin: true,
-                                zoomout: true,
-                                pan: false,
-                                reset: true
-                            }
-                        },
-                        animations: {
-                            enabled: true,
-                            easing: 'easeinout',
-                            speed: 800
-                        }
-                    },
-                    dataLabels: { enabled: false },
-                    stroke: {
-                        curve: 'smooth',
-                        width: 3,  // ✅ Thicker line
-                        colors: ['#4361EE']
-                    },
-                    xaxis: {
-                        categories: categories,
-                        title: {
-                            text: xColumn,
-                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
-                        },
-                        labels: {
-                            style: { colors: '#6b7280', fontSize: '11px' }
-                        }
-                    },
-                    yaxis: {
-                        min: 0,  // ✅ Fix: Start at 0
-                        title: {
-                            text: yColumn,
-                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
-                        },
-                        labels: {
-                            style: { colors: '#6b7280', fontSize: '11px' },
-                            formatter: function(value) {
-                                return value.toFixed(0);
-                            }
-                        }
-                    },
-                    colors: ['#4361EE'],
-                    fill: {
-                        type: chartType === 'area' ? 'gradient' : 'solid',
-                        gradient: {
-                            shadeIntensity: 1,
-                            opacityFrom: 0.5,
-                            opacityTo: 0.1,
-                            stops: [0, 90, 100]
-                        }
-                    },
-                    grid: {
-                        borderColor: '#e5e7eb',
-                        strokeDashArray: 4,
-                        padding: {
-                            bottom: 10  // ✅ Fix: Prevent line going below canvas
-                        }
-                    },
-                    // ✅ ADD LEGEND
-                    legend: {
-                        show: true,
-                        position: 'top',
-                        horizontalAlign: 'left',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        fontFamily: 'inherit',
-                        markers: {
-                            width: 12,
-                            height: 12,
-                            radius: 2
-                        },
-                        itemMargin: {
-                            horizontal: 10
-                        }
-                    },
-                    tooltip: {
-                        shared: true,
-                        intersect: false,
-                        y: {
-                            formatter: function(value) {
-                                return value.toLocaleString();
-                            }
-                        }
-                    }
-                };
-                break;
-
-    case 'pie':
-    case 'donut':
-        const total = values.reduce((a, b) => a + b, 0);
-        options = {
-            series: values,
-            chart: {
-                id: `chart-${componentId}`,
-                type: chartType,
-                height: '100%'
-            },
-            labels: categories,
-            colors: ['#667EEA', '#48BB78', '#F6AD55', '#9F7AEA', '#FC8181', '#14B8A6', '#8B5CF6'],
-            legend: {
-                show: true,
-                position: 'bottom',
-                horizontalAlign: 'center',
-                fontSize: '14px',
-                fontWeight: 600,
-                markers: { width: 14, height: 14, radius: 12 },
-                itemMargin: { horizontal: 12, vertical: 8 },
-                formatter: function(seriesName, opts) {
-                    const value = opts.w.globals.series[opts.seriesIndex];
-                    const percentage = ((value / total) * 100).toFixed(1);
-                    return seriesName + ': ' + value.toLocaleString() + ' (' + percentage + '%)';
-                }
-            },
-            dataLabels: {
-                enabled: true,
-                formatter: function(val) {
-                    return val.toFixed(1) + "%";
-                },
-                style: { fontSize: '13px', fontWeight: 700, colors: ['#fff'] }
-            },
-            plotOptions: {
-                pie: {
-                    donut: {
-                        size: chartType === 'donut' ? '65%' : '0%'
-                    }
-                }
-            },
-            tooltip: {
-                y: {
-                    formatter: function(value) {
-                        const percentage = ((value / total) * 100).toFixed(1);
-                        return value.toLocaleString() + ' (' + percentage + '%)';
-                    }
-                }
-            }
-        };
-        break;
-            default: // bar
-                options = {
-                    series: [{
-                        name: yColumn,
-                        data: values
-                    }],
-                    chart: {
-                        id: `chart-${componentId}`,
-                        type: 'bar',
-                        height: '100%',
-                        toolbar: {
-                            show: true,
-                            tools: {
-                                download: true
-                            }
-                        },
-                        animations: {
-                            enabled: true,
-                            easing: 'easeinout',
-                            speed: 800
-                        }
-                    },
-                    plotOptions: {
-                        bar: {
-                            horizontal: false,
-                            borderRadius: 6,
-                            dataLabels: {
-                                position: 'top'
-                            },
-                            columnWidth: '60%'
-                        }
-                    },
-                    dataLabels: {
-                        enabled: true,
-                        formatter: function(val) {
-                            return val.toLocaleString();
-                        },
-                        offsetY: -20,
-                        style: {
-                            fontSize: '11px',
-                            colors: ["#304758"],
-                            fontWeight: 600
-                        }
-                    },
-                    xaxis: {
-                        categories: categories,
-                        title: {
-                            text: xColumn,
-                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
-                        },
-                        labels: {
-                            style: { colors: '#6b7280', fontSize: '11px' },
-                            rotate: -45,
-                            trim: true
-                        }
-                    },
-                    yaxis: {
-                        min: 0,
-                        title: {
-                            text: yColumn,
-                            style: { fontSize: '12px', fontWeight: 600, color: '#6b7280' }
-                        },
-                        labels: {
-                            style: { colors: '#6b7280', fontSize: '11px' },
-                            formatter: function(value) {
-                                return value.toLocaleString();
-                            }
-                        }
-                    },
-                    colors: ['#667EEA'],
-                    grid: {
-                        borderColor: '#e5e7eb',
-                        strokeDashArray: 4
-                    },
-                    // ✅ LEGEND (optional for single series, but good for consistency)
-                    legend: {
-                        show: false,  // Hide for single series bar
-                        position: 'top',
-                        horizontalAlign: 'left',
-                        fontSize: '13px',
-                        fontWeight: 500
-                    },
-                    tooltip: {
-                        y: {
-                            formatter: function(value) {
-                                return value.toLocaleString();
-                            }
-                        }
-                    }
-                };
-        }
-
-        // Clear existing chart if any
-        const existingChart = ApexCharts.getChartByID(`chart-${componentId}`);
-        if (existingChart) {
-            existingChart.destroy();
-        }
-
-        // Render new chart
-        const chart = new ApexCharts(container, options);
-        chart.render();
-
-        console.log(`Chart ${componentId} rendered successfully`);
-    };
-
-        window.enterFullscreen = function() {
-        const elem = document.documentElement;
-        if (elem.requestFullscreen) {
-            elem.requestFullscreen();
-        } else if (elem.webkitRequestFullscreen) {
-            elem.webkitRequestFullscreen();
-        } else if (elem.msRequestFullscreen) {
-            elem.msRequestFullscreen();
-        }
-    };
-
-    window.exitFullscreen = function() {
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-        } else if (document.msExitFullscreen) {
-            document.msExitFullscreen();
-        }
-    };
-</script>
+@* Chart drawing: wwwroot/JS/dashboard-charts.js (shared with the Dashboard Builder).
+   Fullscreen: wwwroot/JS/dashboardviewer.js. Both are loaded by index.html. *@

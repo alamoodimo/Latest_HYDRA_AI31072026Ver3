@@ -40,7 +40,8 @@ namespace DynamicDasboardWebAPI.Repositories
         /// <summary>
         /// Executes a query on a specific (dynamic) database using its ID.
         /// </summary>
-        public async Task<List<Dictionary<string, object>>> ExecuteQueryOnDatabaseAsync(string query, int databaseId)
+        public async Task<List<Dictionary<string, object>>> ExecuteQueryOnDatabaseAsync(
+            string query , int databaseId, int? maxRows = null, int? commandTimeoutSeconds = null)
         {
             try
             {
@@ -49,7 +50,10 @@ namespace DynamicDasboardWebAPI.Repositories
                     // Use WithConnectionAsync with databaseId for a dynamic DB connection
                     var data = await WithConnectionAsync(async conn =>
                     {
-                        return await conn.ExecuteQueryAsDictionariesAsync(query);
+                        return await conn.ExecuteQueryAsDictionariesAsync(
+                            query,
+                            commandTimeout: commandTimeoutSeconds ?? 120,
+                            maxRows: maxRows);
                     }, databaseId);
 
                     return data;

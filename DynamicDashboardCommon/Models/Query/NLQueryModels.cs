@@ -202,11 +202,19 @@ namespace DynamicDashboardCommon.Models
             /// Flag indicating whether query execution was successful
             /// </summary>
             public bool Success { get; set; }
+        /// <summary>
+        /// True when the result was cut off at the configured row limit (Query:MaxResultRows).
+        /// </summary>
+        public bool IsTruncated { get; set; }
 
-            /// <summary>
-            /// Error message if query execution failed
-            /// </summary>
-            public string ErrorMessage { get; set; }
+        /// <summary>
+        /// The maximum number of rows returned for this query.
+        /// </summary>
+        public int? RowLimit { get; set; }
+        /// <summary>
+        /// Error message if query execution failed
+        /// </summary>
+        public string ErrorMessage { get; set; }
         }
 
     /// <summary>

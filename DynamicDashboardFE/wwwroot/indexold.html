@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dynamic Dashboard System</title>
     <base href="/" />
-    <link rel="icon" type="image/png" href="favicon.png" />
 
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -307,42 +306,26 @@
         </div>
     </div>
 
-    <!-- ============================================================ -->
-    <!-- SCRIPTS                                                      -->
-    <!-- Order: libraries -> app scripts -> Blazor -> MudBlazor.      -->
-    <!-- Libraries and app scripts load before Blazor starts, so any  -->
-    <!-- JavaScript a component calls already exists when it renders. -->
-    <!-- Paths use the real folder name "JS" (case matters on Linux). -->
-    <!-- ============================================================ -->
+    <!-- Blazor WebAssembly -->
+    <script src="_framework/blazor.webassembly.js"></script>
 
-    <!-- Charts - ApexCharts, pinned to a tested version (an unpinned URL silently upgrades to new major versions) -->
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.1/dist/apexcharts.min.js"></script>
+    <!-- YOUR ORIGINAL SCRIPTS -->
+    <script src="JS/dashboard.js"></script>
+    <script src="js/animations.js"></script>
+    <script src="js/data-export.js" defer></script>
+
+    <!-- Charts - ApexCharts -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
     <!-- Charts - ECharts -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 
-    <!-- App scripts -->
-    <script src="JS/dashboard.js"></script>
-    <script src="JS/animation.js"></script>
-    <script src="JS/data-export.js" defer></script>
-
-    <!-- Shared chart renderer (Dashboard Builder + Dashboard Viewer); needs ApexCharts above -->
-    <script src="JS/dashboard-charts.js"></script>
-
-    <!-- Dashboard Builder interop (keyboard, drag & drop, resize) -->
-    <script src="JS/dashboard-builder.js"></script>
-
-    <!-- Dashboard Viewer helpers (fullscreen) -->
-    <script src="JS/dashboardviewer.js"></script>
-
-    <!-- Blazor WebAssembly -->
-    <script src="_framework/blazor.webassembly.js"></script>
-
-    <!-- MudBlazor JS (after Blazor, as MudBlazor requires) -->
+    <!-- MudBlazor JS (NEW - Required for MudBlazor components) -->
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 
-    <!-- Blazor-ApexCharts (v3.6.0) loads its own script automatically when one of its <ApexChart>
-         components is used, so no script tag is needed. The old tag pointed to a file that does
-         not exist in this version (404). -->
+    <!-- ApexCharts Blazor Integration (NEW - Required for Blazor-ApexCharts) -->
+    <script src="_content/Blazor-ApexCharts/js/blazor-apex-charts.js"></script>
+
+    <script src="js/dashboard-builder.js"></script>
 </body>
 </html>

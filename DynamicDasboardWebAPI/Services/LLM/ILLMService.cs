@@ -104,6 +104,11 @@ namespace DynamicDasboardWebAPI.Services.LLM
         /// <param name="userPrompt">The user prompt with dashboard context and schema</param>
         /// <returns>JSON array of component suggestions</returns>
         Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt);
-
+        /// <summary>
+        /// Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt), with a custom output
+        /// budget for short answers (e.g. a repaired SQL query), so long-winded answers are cut short.
+        /// </summary>
+        /// <param name="maxTokens">Maximum number of tokens the model may generate for this call.</param>
+        Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt, int maxTokens);
     }
 }

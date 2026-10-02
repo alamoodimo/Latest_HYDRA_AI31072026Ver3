@@ -301,7 +301,8 @@ namespace DynamicDasboardWebAPI.Utilities
             string sql,
             object parameters = null,
             IDbTransaction transaction = null,
-            int commandTimeout = 120)
+            int commandTimeout = 120,
+            int? maxRows = null)
         {
             // Input validation
             if (connection == null)
@@ -323,7 +324,11 @@ namespace DynamicDasboardWebAPI.Utilities
 
                 // Let Dapper handle everything - it's tested across all database providers
                 var results = await connection.QueryAsync(sql, parameters, transaction, commandTimeout);
-
+                // Optional row limit: read row by row and stop at the limit (see ReadRowsWithLimitAsync).
+                if (maxRows.HasValue && maxRows.Value > 0 && parameters == null && connection is DbConnection dbConnection)
+                {
+                    return await ReadRowsWithLimitAsync(dbConnection, sql, transaction as DbTransaction, commandTimeout, maxRows.Value);
+                }
                 // Convert results to dictionaries
                 var dictResults = new List<Dictionary<string, object>>();
 
@@ -353,6 +358,12 @@ namespace DynamicDasboardWebAPI.Utilities
                     dictResults.Add(dict);
                 }
 
+                // Parameterized queries use the Dapper path above; apply the limit to its result.
+                if (maxRows.HasValue && maxRows.Value > 0 && dictResults.Count > maxRows.Value)
+                {
+                    dictResults.RemoveRange(maxRows.Value, dictResults.Count - maxRows.Value);
+                }
+
                 return dictResults;
             }
             catch (Exception ex)
@@ -374,7 +385,94 @@ namespace DynamicDasboardWebAPI.Utilities
                 throw new InvalidOperationException(errorMessage, ex);
             }
         }
+        /// <summary>
+        /// Reads at most <paramref name="maxRows"/> rows, one at a time, so a large result is never
+        /// loaded into memory. When the limit is reached the command is cancelled, so the server
+        /// stops sending the remaining rows (instead of the driver reading and discarding them
+        /// when the reader closes).
+        /// </summary>
+        private static async Task<List<Dictionary<string, object>>> ReadRowsWithLimitAsync(
+            DbConnection connection,
+            string sql,
+            DbTransaction transaction,
+            int commandTimeout,
+            int maxRows)
+        {
+            var wasOpen = connection.State == ConnectionState.Open;
+            if (!wasOpen)
+            {
+                await connection.OpenAsync();
+            }
 
+            try
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = sql;
+                command.CommandTimeout = commandTimeout;
+                command.Transaction = transaction;
+
+                var rows = new List<Dictionary<string, object>>();
+                var limitReached = false;
+                DbDataReader reader = null;
+
+                try
+                {
+                    reader = await command.ExecuteReaderAsync();
+                    var fieldCount = reader.FieldCount;
+                    var columnNames = new string[fieldCount];
+                    for (var i = 0; i < fieldCount; i++)
+                    {
+                        columnNames[i] = reader.GetName(i);
+                    }
+
+                    while (rows.Count < maxRows && await reader.ReadAsync())
+                    {
+                        var row = new Dictionary<string, object>(fieldCount);
+                        for (var i = 0; i < fieldCount; i++)
+                        {
+                            row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                        }
+                        rows.Add(row);
+                    }
+
+                    limitReached = rows.Count >= maxRows;
+                    if (limitReached)
+                    {
+                        try
+                        {
+                            command.Cancel();
+                        }
+                        catch (Exception)
+                        {
+                            // Best effort: some providers cannot cancel; the reader still closes below.
+                        }
+                    }
+                }
+                finally
+                {
+                    if (reader != null)
+                    {
+                        try
+                        {
+                            await reader.DisposeAsync();
+                        }
+                        catch (DbException) when (limitReached)
+                        {
+                            // Expected: closing a reader whose command was cancelled may report the cancellation.
+                        }
+                    }
+                }
+
+                return rows;
+            }
+            finally
+            {
+                if (!wasOpen && connection.State == ConnectionState.Open)
+                {
+                    connection.Close();
+                }
+            }
+        }
 
 
         /// <summary>

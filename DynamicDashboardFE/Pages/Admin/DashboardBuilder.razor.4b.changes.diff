@@ -1,0 +1,398 @@
+--- /tmp/f4b/old.razor	2026-10-01 18:43:15.699711867 +0000
++++ /tmp/f4b/new.razor	2026-10-01 18:43:15.702818231 +0000
+@@ -572,11 +572,11 @@
+                                                 }
+                                                 else
+                                                 {
+-                                                    <button class="btn btn-sm btn-link" title="Regenerate with AI"
+-                                                            @onclick="() => RegenerateComponent(component)"
++                                                    <button class="btn btn-sm btn-link" title="Replace with a different AI-generated component"
++                                                            @onclick="() => RegenerateComponent(component, ComponentRegenerationMode.Alternative)"
+                                                             @onclick:stopPropagation="true"
+                                                             disabled="@(dashboard.DatabaseID <= 0)">
+-                                                        <i class="fas fa-magic"></i>
++                                                        <i class="fas fa-random"></i>
+                                                     </button>
+                                                 }
+                                                 <button class="btn btn-sm btn-link" @onclick="() => LoadComponentDataAsync(component)" @onclick:stopPropagation="true" title="Refresh Data">
+@@ -1639,6 +1639,9 @@
+     private Dictionary<int, string> componentErrors = new Dictionary<int, string>();
+     private Dictionary<int, bool> isRegenerating = new Dictionary<int, bool>();
+ 
++    // Components whose result was cut off by the server (Query:MaxResultRows): componentId -> row limit
++    private readonly Dictionary<int, int> serverRowLimits = new Dictionary<int, int>();
++
+     // ============================================
+     // CHART DRAWING STATE
+     // Charts are drawn by OnAfterRenderAsync, i.e. after the render that put their
+@@ -2665,16 +2668,27 @@
+             if (result.Success)
+             {
+                 componentData[componentId] = result.Results ?? new List<Dictionary<string, object>>();
++
++                if (result.IsTruncated && result.RowLimit.HasValue)
++                {
++                    serverRowLimits[componentId] = result.RowLimit.Value;
++                }
++                else
++                {
++                    serverRowLimits.Remove(componentId);
++                }
+             }
+             else
+             {
+                 componentData.Remove(componentId);
++                serverRowLimits.Remove(componentId);
+                 componentErrors[componentId] = result.ErrorMessage;
+             }
+         }
+         catch (Exception ex)
+         {
+             componentData.Remove(componentId);
++            serverRowLimits.Remove(componentId);
+             componentErrors[componentId] = $"Could not load data: {ex.Message}";
+         }
+         finally
+@@ -2765,6 +2779,7 @@
+     {
+         componentData.Clear();
+         componentErrors.Clear();
++        serverRowLimits.Clear();
+         isComponentLoading.Clear();
+         isRegenerating.Clear();
+         tableCurrentPage.Clear();
+@@ -2798,6 +2813,7 @@
+     {
+         var previousData = new Dictionary<int, List<Dictionary<string, object>>>(componentData);
+         var previousErrors = new Dictionary<int, string>(componentErrors);
++        var previousRowLimits = new Dictionary<int, int>(serverRowLimits);
+ 
+         await ResetComponentStateAsync();
+         dashboard = savedDashboard;
+@@ -2814,6 +2830,10 @@
+             if (previous != null && previousData.TryGetValue(previous.ComponentID, out var rows))
+             {
+                 componentData[saved.ComponentID] = rows;
++                if (previousRowLimits.TryGetValue(previous.ComponentID, out var rowLimit))
++                {
++                    serverRowLimits[saved.ComponentID] = rowLimit;
++                }
+             }
+             else if (previous != null && previousErrors.TryGetValue(previous.ComponentID, out var error))
+             {
+@@ -2924,6 +2944,10 @@
+         if (componentData.TryGetValue(component.ComponentID, out var rows))
+         {
+             componentData[newComponent.ComponentID] = rows;
++            if (serverRowLimits.TryGetValue(component.ComponentID, out var rowLimit))
++            {
++                serverRowLimits[newComponent.ComponentID] = rowLimit;
++            }
+             if (newComponent.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+             {
+                 QueueChartRender(newComponent.ComponentID);
+@@ -2946,6 +2970,7 @@
+             }
+             componentData.Remove(componentId);
+             componentErrors.Remove(componentId);
++            serverRowLimits.Remove(componentId);
+             isComponentLoading.Remove(componentId);
+             isRegenerating.Remove(componentId);
+             QueueChartDestroy(componentId);
+@@ -2983,11 +3008,21 @@
+         return Task.CompletedTask;
+     }
+ 
+-    private async Task RegenerateComponent(DashboardComponent component)
++    /// <summary>
++    /// Asks the AI to regenerate one component (api/assistant/regenerate).
++    /// Repair ("Fix with AI" on a failed or empty card): keeps the title, description and type; only
++    /// the SQL changes, and the API test-runs it before returning it.
++    /// Alternative (card header button): a different component of the same type.
++    /// On failure the card stays unchanged and the reason from the API is shown.
++    /// </summary>
++    private async Task RegenerateComponent(DashboardComponent component, ComponentRegenerationMode mode)
+     {
+         if (component == null || dashboard.DatabaseID <= 0) return;
+ 
+-        isRegenerating[component.ComponentID] = true;
++        var componentId = component.ComponentID;
++        var isRepair = mode == ComponentRegenerationMode.Repair;
++
++        isRegenerating[componentId] = true;
+         StateHasChanged();
+ 
+         try
+@@ -3000,44 +3035,52 @@
+                 GridWidth = component.GridWidth,
+                 GridHeight = component.GridHeight,
+                 FailedTitle = component.Title,
++                FailedDescription = component.Description,
+                 FailedSql = component.QueryText,
+-                ErrorMessage = componentErrors.ContainsKey(component.ComponentID) ? componentErrors[component.ComponentID] : "User requested regeneration",
+-                ExistingTitles = dashboard.Components.Where(c => c.ComponentID != component.ComponentID).Select(c => c.Title).ToList(),
++                ErrorMessage = isRepair ? GetComponentProblem(componentId) : "User requested different component",
++                ExistingTitles = dashboard.Components.Where(c => c.ComponentID != componentId).Select(c => c.Title).ToList(),
+                 DataViewingTypeID = component.DataViewingTypeID,
+-                ChartType = component.ChartType
++                ChartType = component.ChartType,
++                Mode = mode
+             };
+ 
+-            var response = await Http.PostAsJsonAsync("api/assistant/regenerate", request);
++            using var response = await Http.PostAsJsonAsync("api/assistant/regenerate", request);
++            var result = await ReadAssistantResponseAsync(response);
+ 
+-            if (response.IsSuccessStatusCode)
++            var suggestion = result.Success ? result.Suggestions?.FirstOrDefault() : null;
++            if (suggestion == null || string.IsNullOrWhiteSpace(suggestion.SqlTemplate))
+             {
+-                var result = await response.Content.ReadFromJsonAsync<AssistantSuggestionResponse>();
++                var reason = string.IsNullOrWhiteSpace(result.Message)
++                    ? "The AI could not produce a working query."
++                    : result.Message;
++
++                ToastService.ShowError(isRepair
++                    ? $"Could not fix \"{component.Title}\": {reason}"
++                    : $"Could not replace \"{component.Title}\": {reason}");
++                return;
++            }
+ 
+-                if (result?.Success == true && result.Suggestions?.Any() == true)
+-                {
+-                    var newSuggestion = result.Suggestions.First();
+-                    component.Title = newSuggestion.Title;
+-                    component.Description = newSuggestion.Description;
+-                    component.QueryText = newSuggestion.SqlTemplate;
++            // Repair keeps the card's title and description; a replacement brings its own.
++            if (!isRepair)
++            {
++                if (!string.IsNullOrWhiteSpace(suggestion.Title)) component.Title = suggestion.Title;
++                if (suggestion.Description != null) component.Description = suggestion.Description;
++            }
+ 
+-                    componentErrors.Remove(component.ComponentID);
+-                    componentData.Remove(component.ComponentID);
++            component.QueryText = suggestion.SqlTemplate;
++            component.LastUpdated = DateTime.UtcNow;
+ 
+-                    // Loading the data also queues the chart drawing.
+-                    await LoadComponentDataAsync(component);
++            componentErrors.Remove(componentId);
++            componentData.Remove(componentId);
++            serverRowLimits.Remove(componentId);
++            hasUnsavedChanges = true;
+ 
+-                    hasUnsavedChanges = true;
+-                    ToastService.ShowSuccess($"Regenerated: {component.Title}");
+-                }
+-                else
+-                {
+-                    ToastService.ShowError(result?.Message ?? "Failed to regenerate");
+-                }
+-            }
+-            else
+-            {
+-                ToastService.ShowError("Failed to regenerate component");
+-            }
++            // Loading the data also queues the chart drawing.
++            await LoadComponentDataAsync(component);
++
++            ToastService.ShowSuccess(isRepair
++                ? $"\"{component.Title}\": {result.Message}"
++                : $"Replaced with \"{component.Title}\"");
+         }
+         catch (Exception ex)
+         {
+@@ -3045,11 +3088,60 @@
+         }
+         finally
+         {
+-            isRegenerating[component.ComponentID] = false;
++            isRegenerating[componentId] = false;
+             StateHasChanged();
+         }
+     }
+ 
++    /// <summary>What is wrong with a component, sent to the AI in repair mode.</summary>
++    private string GetComponentProblem(int componentId)
++    {
++        if (componentErrors.TryGetValue(componentId, out var error) && !string.IsNullOrWhiteSpace(error))
++        {
++            return error;
++        }
++
++        return componentData.TryGetValue(componentId, out var rows) && rows?.Count == 0
++            ? "The query ran successfully but returned no rows."
++            : "The query needs to be checked and fixed.";
++    }
++
++    /// <summary>
++    /// Reads the api/assistant/regenerate response, success or failure. On failure the API sends
++    /// { "message": ... }, which maps to Message, so the real reason can be shown.
++    /// </summary>
++    private static async Task<AssistantSuggestionResponse> ReadAssistantResponseAsync(HttpResponseMessage response)
++    {
++        AssistantSuggestionResponse result = null;
++
++        try
++        {
++            var body = await response.Content.ReadAsStringAsync();
++            if (!string.IsNullOrWhiteSpace(body))
++            {
++                result = JsonSerializer.Deserialize<AssistantSuggestionResponse>(body, QueryJsonOptions);
++            }
++        }
++        catch (JsonException)
++        {
++            // Not JSON: fall through to the generic message below.
++        }
++
++        result ??= new AssistantSuggestionResponse();
++
++        if (!response.IsSuccessStatusCode)
++        {
++            result.Success = false;
++        }
++
++        if (!result.Success && string.IsNullOrWhiteSpace(result.Message))
++        {
++            result.Message = $"The AI request failed ({(int)response.StatusCode} {response.ReasonPhrase}).";
++        }
++
++        return result;
++    }
++
+     // ============================================
+     // CHART/VISUALIZATION METHODS
+     // ============================================
+@@ -4171,13 +4263,7 @@
+                     </button>
+                     @if (!isPreviewMode)
+                     {
+-                        <button type="button" class="state-btn state-btn-primary"
+-                                title="Ask AI to fix this component using the error above"
+-                                disabled="@(IsRegeneratingComponent(component.ComponentID) || dashboard.DatabaseID <= 0)"
+-                                @onclick="() => RegenerateComponent(component)"
+-                                @onclick:stopPropagation="true">
+-                            <i class="fas fa-magic"></i> Fix with AI
+-                        </button>
++                        @RenderFixWithAiButton(component, "Ask AI to fix this query using the error above (same title and purpose)")
+                     }
+                 </div>
+             </div>
+@@ -4212,6 +4298,17 @@
+                 <i class="fas fa-inbox"></i>
+                 <p class="component-state-title">No rows returned</p>
+                 <small class="component-state-message">The query ran successfully but returned no data.</small>
++                <div class="component-state-actions">
++                    <button type="button" class="state-btn" title="Run the query again"
++                            @onclick="() => LoadComponentDataAsync(component)"
++                            @onclick:stopPropagation="true">
++                        <i class="fas fa-redo"></i> Retry
++                    </button>
++                    @if (!isPreviewMode)
++                    {
++                        @RenderFixWithAiButton(component, "Ask AI to adjust this query so it returns data (same title and purpose)")
++                    }
++                </div>
+             </div>
+         }
+         else if (component.DataViewingTypeID == (int)DataViewingTypeEnum.Table)
+@@ -4241,6 +4338,43 @@
+         }
+     </div>;
+ 
++    /// <summary>"Fix with AI" (repair mode): shows progress while the AI works on this component.</summary>
++    private RenderFragment RenderFixWithAiButton(DashboardComponent component, string tooltip) => @<button type="button" class="state-btn state-btn-primary"
++            title="@tooltip"
++            disabled="@(IsRegeneratingComponent(component.ComponentID) || dashboard.DatabaseID <= 0)"
++            @onclick="() => RegenerateComponent(component, ComponentRegenerationMode.Repair)"
++            @onclick:stopPropagation="true">
++        @if (IsRegeneratingComponent(component.ComponentID))
++        {
++            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
++            <span>Fixing...</span>
++        }
++        else
++        {
++            <i class="fas fa-magic"></i>
++            <span>Fix with AI</span>
++        }
++    </button>;
++
++    /// <summary>
++    /// Footer under a table card: explains when not all rows are shown, either because the card
++    /// shows at most MaxTableRowsDisplayed rows or because the server stopped at Query:MaxResultRows.
++    /// </summary>
++    private string GetTableFooterText(int componentId)
++    {
++        var rowCount = GetComponentData(componentId).Count;
++        var shown = Math.Min(rowCount, maxTableRowsDisplayed);
++
++        if (serverRowLimits.TryGetValue(componentId, out var rowLimit))
++        {
++            return $"Showing {shown:N0} of the first {rowLimit:N0} rows (server row limit reached)";
++        }
++
++        return rowCount > maxTableRowsDisplayed
++            ? $"Showing the first {shown:N0} of {rowCount:N0} rows"
++            : string.Empty;
++    }
++
+     /// <summary>Table body: first six columns, at most MaxTableRowsDisplayed rows.</summary>
+     private RenderFragment RenderTable(DashboardComponent component) => @<div class="table-responsive component-table" style="max-height: 100%; overflow: auto;">
+         <table class="table table-sm table-hover mb-0">
+@@ -4264,11 +4398,9 @@
+                 }
+             </tbody>
+         </table>
+-        @if (GetComponentData(component.ComponentID).Count > maxTableRowsDisplayed)
++        @if (!string.IsNullOrEmpty(GetTableFooterText(component.ComponentID)))
+         {
+-            <div class="component-table-footer">
+-                Showing the first @maxTableRowsDisplayed of @GetComponentData(component.ComponentID).Count rows
+-            </div>
++            <div class="component-table-footer">@GetTableFooterText(component.ComponentID)</div>
+         }
+     </div>;
+ 
+@@ -4696,35 +4828,10 @@
+         public bool Success { get; set; }
+         public List<Dictionary<string, object>> Results { get; set; }
+         public string ErrorMessage { get; set; }
+-    }
+-
+-    private class RegenerateComponentRequest
+-    {
+-        public int DatabaseId { get; set; }
+-        public int GridX { get; set; }
+-        public int GridY { get; set; }
+-        public int GridWidth { get; set; }
+-        public int GridHeight { get; set; }
+-        public string FailedTitle { get; set; }
+-        public string FailedSql { get; set; }
+-        public string ErrorMessage { get; set; }
+-        public List<string> ExistingTitles { get; set; }
+-        public int DataViewingTypeID { get; set; }
+-        public string ChartType { get; set; }
+-    }
+ 
+-    private class AssistantSuggestionResponse
+-    {
+-        public bool Success { get; set; }
+-        public string Message { get; set; }
+-        public List<ComponentSuggestion> Suggestions { get; set; }
+-    }
+-
+-    private class ComponentSuggestion
+-    {
+-        public string Title { get; set; }
+-        public string Description { get; set; }
+-        public string SqlTemplate { get; set; }
++        // Set by the API when the result stopped at Query:MaxResultRows
++        public bool IsTruncated { get; set; }
++        public int? RowLimit { get; set; }
+     }
+ 
+     private class CanvasBounds

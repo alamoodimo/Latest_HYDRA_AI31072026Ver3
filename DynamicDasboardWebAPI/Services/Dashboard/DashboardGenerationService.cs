@@ -1,4 +1,5 @@
 ﻿using DynamicDasboardWebAPI.Services.LLM;
+using DynamicDasboardWebAPI.Utilities;
 using DynamicDashboardCommon.Enums;
 using DynamicDashboardCommon.Helper;
 
@@ -24,13 +25,21 @@ namespace DynamicDasboardWebAPI.Services
         private readonly IConfiguration _configuration;
         private readonly bool _useMockData;
 
+        // Option A: check (and repair) every generated query before the dashboard is returned
+        private readonly IComponentSqlRepairService _repairService;
+        private readonly bool _validateGeneratedSql;
+        private readonly int _maxParallelValidations;
+        private readonly int _maxGenerationRepairs;
+        private readonly TimeSpan _generationRepairBudget;
+
         public DashboardGenerationService(
             ILLMService llmService,
             DatabaseSchemaService schemaService,
             DatabaseService databaseService,
             ILogsService logsService,
             string templatesFilePath,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IComponentSqlRepairService repairService)
         {
             _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
             _schemaService = schemaService ?? throw new ArgumentNullException(nameof(schemaService));
@@ -41,6 +50,12 @@ namespace DynamicDasboardWebAPI.Services
 
             // Read mock mode from configuration (default: false for production)
             _useMockData = _configuration.GetValue<bool>("Dashboard:UseMockData", false);
+
+            _repairService = repairService ?? throw new ArgumentNullException(nameof(repairService));
+            _validateGeneratedSql = _configuration.GetValue<bool>("DashboardAI:ValidateGeneratedSql", true);
+            _maxParallelValidations = Math.Max(1, _configuration.GetValue<int>("DashboardAI:MaxParallelValidations", 4));
+            _maxGenerationRepairs = Math.Max(0, _configuration.GetValue<int>("DashboardAI:MaxGenerationRepairs", 6));
+            _generationRepairBudget = TimeSpan.FromSeconds(Math.Max(0, _configuration.GetValue<int>("DashboardAI:GenerationRepairBudgetSeconds", 120)));
         }
 
         #region Public Methods
@@ -109,6 +124,13 @@ namespace DynamicDasboardWebAPI.Services
 
                 // 7. Parse response and build dashboard
                 var dashboard = ParseAndBuildDashboard(llmResponse, template, databaseId);
+
+                // 8. Option A: test-run every query and repair failing or empty ones.
+                //    Skipped in mock mode, whose sample SQL targets a test table.
+                if (!_useMockData && _validateGeneratedSql)
+                {
+                    await ValidateAndRepairComponentsAsync(dashboard, databaseId);
+                }
 
                 return new List<DashboardModel> { dashboard };
             }
@@ -204,7 +226,7 @@ namespace DynamicDasboardWebAPI.Services
             userSb.AppendLine();
             userSb.AppendLine($"**Target Database:** {databaseType}");
             userSb.AppendLine();
-            userSb.AppendLine(GetDbSyntaxGuidance(databaseType));
+            userSb.AppendLine(SqlDialectGuidance.For(databaseType));
             userSb.AppendLine();
 
             // Section 3: Database Schema
@@ -303,77 +325,6 @@ namespace DynamicDasboardWebAPI.Services
             string userPrompt = userSb.ToString();
 
             return (systemPrompt, userPrompt);
-        }
-
-        /// <summary>
-        /// Returns database-specific SQL syntax guidance for the LLM.
-        /// </summary>
-        private string GetDbSyntaxGuidance(string databaseType)
-        {
-            var dbType = databaseType?.ToLower() ?? "sql server";
-
-            if (dbType.Contains("mysql"))
-            {
-                return @"**MySQL Syntax Rules - YOU MUST FOLLOW:**
-- Use `LIMIT N` to restrict rows (e.g., `SELECT * FROM table LIMIT 10`)
-- Use `DATE_FORMAT(date, '%Y-%m')` for date formatting
-- Use `NOW()` or `CURDATE()` for current date/time
-- Use `IFNULL(column, default)` for null handling
-- Use `CONCAT(str1, str2)` for string concatenation
-- Use `YEAR(date)`, `MONTH(date)`, `DAY(date)` for date parts
-- Use `DATEDIFF(date1, date2)` for date difference (returns days)
-- Boolean: Use `TRUE`/`FALSE` or `1`/`0`
-- Use `DATE_ADD(date, INTERVAL 1 DAY)` for date arithmetic
-- DO NOT use: TOP, GETDATE(), ISNULL(), FORMAT()";
-            }
-            else if (dbType.Contains("oracle"))
-            {
-                return @"**Oracle Syntax Rules - YOU MUST FOLLOW:**
-- Use `FETCH FIRST N ROWS ONLY` to restrict rows
-- Or use `WHERE ROWNUM <= N` for older Oracle versions
-- Use `TO_CHAR(date, 'YYYY-MM')` for date formatting
-- Use `SYSDATE` for current date/time
-- Use `NVL(column, default)` for null handling
-- Use `||` for string concatenation
-- Use `EXTRACT(YEAR FROM date)` for date parts
-- Use `ADD_MONTHS(date, 1)` for date arithmetic
-- Every SELECT must have FROM (use `FROM DUAL` for constants)
-- String literals: Use single quotes only
-- DO NOT use: TOP, LIMIT, GETDATE(), ISNULL(), DATE_FORMAT()";
-            }
-            else if (dbType.Contains("postgres"))
-            {
-                return @"**PostgreSQL Syntax Rules - YOU MUST FOLLOW:**
-- Use `LIMIT N` to restrict rows (e.g., `SELECT * FROM table LIMIT 10`)
-- Use `TO_CHAR(date, 'YYYY-MM')` for date formatting
-- Use `NOW()` or `CURRENT_DATE` for current date/time
-- Use `COALESCE(column, default)` for null handling
-- Use `||` or `CONCAT(str1, str2)` for string concatenation
-- Use `EXTRACT(YEAR FROM date)` or `DATE_PART('year', date)` for date parts
-- Boolean: Use `TRUE`/`FALSE`
-- Use `INTERVAL '1 day'` for date arithmetic (e.g., `date + INTERVAL '1 day'`)
-- Use `::` for type casting (e.g., `'2023-01-01'::date`)
-- Use `ILIKE` for case-insensitive pattern matching
-- String literals: Use single quotes only
-- DO NOT use: TOP, GETDATE(), ISNULL(), FORMAT(), + for string concatenation
-- JSON support: Use `->>` for JSON extraction, `@?` for JSON path queries";
-            }
-            else // Default: SQL Server
-            {
-                return @"**SQL Server Syntax Rules - YOU MUST FOLLOW:**
-- Use `TOP N` to restrict rows (e.g., `SELECT TOP 10 * FROM table`)
-- Use `FORMAT(date, 'yyyy-MM')` for date formatting
-- Use `GETDATE()` for current date/time
-- Use `ISNULL(column, default)` for null handling
-- Use `+` or `CONCAT(str1, str2)` for string concatenation
-- Use `YEAR(date)`, `MONTH(date)`, `DAY(date)` for date parts
-- Use `DATEDIFF(day, date1, date2)` for date difference
-- Use `DATEADD(day, 1, date)` for date arithmetic
-- Boolean: Use `1`/`0` (no TRUE/FALSE)
-- String literals: Use single quotes only
-- Use `LIKE` with `%` wildcard
-- DO NOT use: LIMIT, NOW(), IFNULL(), DATE_FORMAT(), NVL(), FETCH FIRST";
-            }
         }
 
         #endregion
@@ -550,6 +501,142 @@ Example format:
             {
                 // Return empty list on error
                 return new List<string>();
+            }
+        }
+
+        #endregion
+
+        #region Generated SQL Validation (Option A)
+
+        /// <summary>
+        /// Option A: every generated query is test-run (1 row) before the dashboard is returned.
+        /// Queries that fail or return no rows are repaired by the shared ComponentSqlRepairService
+        /// (same title, purpose and type), so the dashboard arrives with working components.
+        ///
+        /// - Checks run in parallel (DashboardAI:MaxParallelValidations). The first check runs alone
+        ///   so the database's connection details are cached before parallel connections open.
+        /// - Repairs run one at a time, because each one calls the LLM.
+        /// - Repairs stop after DashboardAI:MaxGenerationRepairs components or once
+        ///   DashboardAI:GenerationRepairBudgetSeconds have passed, so generation stays well within
+        ///   the frontend's request timeout. Anything left is shown on its card in the builder,
+        ///   with "Fix with AI".
+        /// - This step never fails the generation: on an unexpected error the dashboard is returned
+        ///   as generated and the problem is logged.
+        /// </summary>
+        private async Task ValidateAndRepairComponentsAsync(DashboardModel dashboard, int databaseId)
+        {
+            try
+            {
+                var components = dashboard.Components?
+                    .Where(c => c.DataViewingTypeID != (int)DataViewingTypeEnum.Label && !string.IsNullOrWhiteSpace(c.QueryText))
+                    .ToList() ?? new List<DashboardComponent>();
+
+                if (!components.Any())
+                {
+                    return;
+                }
+
+                // 1. Check every query
+                var checks = new List<GeneratedQueryCheck>
+                {
+                    await CheckComponentAsync(components[0], databaseId)
+                };
+
+                using (var throttler = new SemaphoreSlim(_maxParallelValidations))
+                {
+                    var parallelChecks = components.Skip(1).Select(async component =>
+                    {
+                        await throttler.WaitAsync();
+                        try
+                        {
+                            return await CheckComponentAsync(component, databaseId);
+                        }
+                        finally
+                        {
+                            throttler.Release();
+                        }
+                    }).ToList();
+
+                    checks.AddRange(await Task.WhenAll(parallelChecks));
+                }
+
+                // 2. Repair the ones that failed or returned no rows (one at a time: each calls the LLM)
+                var failedChecks = checks.Where(c => !c.Result.IsValid).ToList();
+                var repaired = 0;
+                var notRepaired = 0;
+                var notAttempted = 0;
+                var repairTimer = System.Diagnostics.Stopwatch.StartNew();
+
+                foreach (var check in failedChecks)
+                {
+                    if (repaired + notRepaired >= _maxGenerationRepairs || repairTimer.Elapsed >= _generationRepairBudget)
+                    {
+                        notAttempted++;
+                        continue;
+                    }
+
+                    var component = check.Component;
+                    var repair = await _repairService.RepairAsync(new ComponentSqlRepairRequest
+                    {
+                        DatabaseId = databaseId,
+                        Title = component.Title,
+                        Description = component.Description,
+                        DataViewingTypeID = component.DataViewingTypeID,
+                        ChartType = component.ChartType,
+                        Sql = component.QueryText
+                    });
+
+                    if (repair.Success)
+                    {
+                        component.QueryText = repair.Sql;
+                        component.LastUpdated = DateTime.UtcNow;
+                        repaired++;
+                    }
+                    else
+                    {
+                        notRepaired++;
+                    }
+                }
+
+                await LogAsync(EnumLoggingType.Information,
+                    $"Dashboard generation check for \"{dashboard.Title}\" (database {databaseId}): " +
+                    $"{checks.Count} queries checked, {checks.Count - failedChecks.Count} worked, {repaired} repaired, " +
+                    $"{notRepaired} could not be repaired, {notAttempted} not attempted " +
+                    $"(limits: {_maxGenerationRepairs} repairs, {_generationRepairBudget.TotalSeconds:0} s; repairs took {repairTimer.Elapsed.TotalSeconds:0} s).");
+            }
+            catch (Exception ex)
+            {
+                await LogAsync(EnumLoggingType.Warning,
+                    $"Dashboard generation check skipped for database {databaseId}: {ex.Message}");
+            }
+        }
+
+        private async Task<GeneratedQueryCheck> CheckComponentAsync(DashboardComponent component, int databaseId)
+        {
+            return new GeneratedQueryCheck
+            {
+                Component = component,
+                Result = await _repairService.ValidateAsync(component.QueryText, databaseId)
+            };
+        }
+
+        /// <summary>A generated component and the result of test-running its query.</summary>
+        private sealed class GeneratedQueryCheck
+        {
+            public DashboardComponent Component { get; init; }
+            public ComponentSqlValidationResult Result { get; init; }
+        }
+
+        /// <summary>Writes to the application log; logging problems never break generation.</summary>
+        private async Task LogAsync(EnumLoggingType type, string message)
+        {
+            try
+            {
+                await _logsService.AddLogAsync(null, type.ToString(), message);
+            }
+            catch (Exception)
+            {
+                // Logging must not break dashboard generation.
             }
         }
 

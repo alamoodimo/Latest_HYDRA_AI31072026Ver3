@@ -14,6 +14,42 @@
             Loads dataset comparison data for visualization with improved error handling
             </summary>
         </member>
+        <member name="T:DynamicDashboardFE.Pages.Admin.DashboardBuilder.AiWorkState">
+            <summary>A component the AI is currently working on: what it is doing and since when.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ShouldRender">
+            <summary>
+            Skips one render when a drag-over event changed nothing visible
+            (drag-over fires many times per second).
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.DisposeAsync">
+            <summary>
+            Releases JavaScript resources when leaving the page: keyboard shortcuts, an active
+            mouse resize, and every chart drawn by this page.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.LoadBuilderSettings">
+            <summary>Reads the builder settings (wwwroot/appsettings.json, section "DashboardBuilder").</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.QueueChartRender(System.Int32)">
+            <summary>Marks a chart to be drawn after the next render.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.QueueAllChartRenders">
+            <summary>Marks every chart that has data to be drawn after the next render.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.QueueChartDestroy(System.Int32)">
+            <summary>Marks a removed component's chart to be released after the next render.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ProcessChartQueueAsync">
+            <summary>
+            Releases and draws the queued charts. Runs after a render, so each chart area is on the
+            page; the JavaScript side also waits briefly in case Blazor is still updating it.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.DrawChartAsync(DynamicDashboardCommon.Models.DashboardComponent,System.Collections.Generic.List{System.Collections.Generic.Dictionary{System.String,System.Object}})">
+            <summary>Draws one chart; failures are reported in the browser console.</summary>
+        </member>
         <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnArrowKey(System.String,System.Boolean,System.Boolean)">
             <summary>
             Handles arrow key press for moving/resizing components
@@ -52,6 +88,142 @@
         <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnSaveKey">
             <summary>
             Handles Ctrl+S - save dashboard
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetCanvasBoundsAsync">
+            <summary>
+            Canvas position and size. Uses a synchronous call when available (WebAssembly), so
+            drag-over handlers finish without yielding and can skip unnecessary renders.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetGridCellAsync(System.Double,System.Double)">
+            <summary>
+            Grid cell under a pointer position (not clamped). Accounts for the 16px grid gap and the
+            canvas zoom (the canvas is scaled with CSS, so measured sizes are scaled too).
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetDropIndicatorStyle">
+            <summary>Drop indicator position and size in px, from its grid cell and span.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.LoadAllComponentsData">
+            <summary>
+            Runs the SQL of every component that has a query (at most MaxParallelDataLoads at a time).
+            Each component then shows its result, "No rows returned", or the real error.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.LoadComponentDataAsync(DynamicDashboardCommon.Models.DashboardComponent)">
+            <summary>
+            Runs one component's SQL. On success the rows are stored (and a chart is queued for drawing);
+            on failure the real error message is stored in componentErrors and shown on the card.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.AutoLoadDashboardDataAsync">
+            <summary>Loads data for every component with SQL when the dashboard has a database.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ResetComponentStateAsync">
+            <summary>
+            Clears all per-component state of the current dashboard (data, errors, loading flags,
+            selection, table paging and drawn charts). Needed before showing another dashboard,
+            because component IDs repeat between dashboards (generated ones are always 1..N).
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RemapComponentStateAfterSaveAsync(System.Collections.Generic.List{DynamicDashboardCommon.Models.DashboardComponent},DynamicDashboardCommon.Models.DashboardModel)">
+            <summary>
+            After the first save the API returns the dashboard with database-assigned component IDs.
+            Moves each component's loaded data or error to its new ID (matched by position, size and
+            SQL), so nothing has to be queried again; components that cannot be matched are reloaded.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RegenerateComponent(DynamicDashboardCommon.Models.DashboardComponent,DynamicDashboardCommon.Enums.ComponentRegenerationMode)">
+            <summary>
+            Asks the AI to regenerate one component (api/assistant/regenerate).
+            Repair ("Fix with AI" on a failed or empty card): keeps the title, description and type; only
+            the SQL changes, and the API test-runs it before returning it.
+            Alternative (card header button): a different component of the same type.
+            On failure the card stays unchanged and the reason from the API is shown.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.EnsureAiWorkTicker">
+            <summary>Starts the once-per-second refresh used for the elapsed time on working cards.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.StopAiWorkTickerIfIdle">
+            <summary>Stops the refresh when no component is waiting for the AI any more.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetComponentProblem(System.Int32)">
+            <summary>What is wrong with a component, sent to the AI in repair mode.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ReadAssistantResponseAsync(System.Net.Http.HttpResponseMessage)">
+            <summary>
+            Reads the api/assistant/regenerate response, success or failure. On failure the API sends
+            { "message": ... }, which maps to Message, so the real reason can be shown.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RenderChart(DynamicDashboardCommon.Models.DashboardComponent)">
+            <summary>Requests a redraw of one chart after the next render (kept for existing callers).</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RenderAllCharts">
+            <summary>Requests a redraw of every chart that has data (kept for existing callers).</summary>
+        </member>
+        <member name="P:DynamicDashboardFE.Pages.Admin.DashboardBuilder.CanApplySettings">
+            <summary>Title and database are required before settings can be applied.</summary>
+        </member>
+        <member name="P:DynamicDashboardFE.Pages.Admin.DashboardBuilder.IsDatabaseChangeWithComponents">
+            <summary>True when switching the database of a dashboard that already has components.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ShowDashboardSettings">
+            <summary>Opens the settings window pre-filled with the current dashboard values.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ApplyDashboardSettings">
+            <summary>Copies the working values to the dashboard and marks it as changed.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetDashboardDatabaseName">
+            <summary>Display name of the dashboard's database for the header chip.</summary>
+        </member>
+        <!-- Badly formed XML comment ignored for member "M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ShowTemplateModal" -->
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.CloseTemplateModal">
+            
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.FormatCell(System.Object)">
+            <summary>Display text for a table cell ("-" for empty values).</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetTableColumns(System.Int32)">
+            <summary>Table columns shown on a card (the first six, as before).</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RenderComponentBody(DynamicDashboardCommon.Models.DashboardComponent)">
+            <summary>
+            A component's body. States, in order: label (no data needed), loading, query failed
+            (message + Retry + Fix with AI), no SQL yet, not loaded yet, no rows, then the content.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RenderAiFixNote(System.Int32)">
+            <summary>Why the last AI fix did not succeed (kept on the card until the next successful load or SQL edit).</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RenderFixWithAiButton(DynamicDashboardCommon.Models.DashboardComponent,System.String)">
+            <summary>"Fix with AI" (repair mode): shows progress while the AI works on this component.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.GetTableFooterText(System.Int32)">
+            <summary>
+            Footer under a table card: explains when not all rows are shown, either because the card
+            shows at most MaxTableRowsDisplayed rows or because the server stopped at Query:MaxResultRows.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.RenderTable(DynamicDashboardCommon.Models.DashboardComponent)">
+            <summary>Table body: first six columns, at most MaxTableRowsDisplayed rows.</summary>
+        </member>
+        <member name="T:DynamicDashboardFE.Pages.Admin.DashboardBuilder.ResizeHandle">
+            <summary>A resize handle on a selected card (n, s, e, w and the four corners).</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.StartResize(Microsoft.AspNetCore.Components.Web.MouseEventArgs,System.Int32,System.String)">
+            <summary>
+            Starts a mouse resize from a card's edge or corner. JavaScript then reports pointer moves
+            (OnResizeMove) and the release (OnResizeEnd). One .NET reference is reused for all resizes.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.Admin.DashboardBuilder.OnResizeMove(Microsoft.AspNetCore.Components.Web.MouseEventArgs)">
+            <summary>
+            Called while the mouse moves during a resize. The dragged edges follow the grid cell
+            under the pointer and the opposite edges stay fixed, for all eight handles. A new size
+            is applied only when it does not overlap another component.
             </summary>
         </member>
         <member name="T:DynamicDashboardFE.Pages.User.Dashboard">
@@ -192,6 +364,27 @@
             <summary>
             Request model for executing SQL queries.
             </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.DashboardViewerPage.OnAfterRenderAsync(System.Boolean)">
+            <summary>
+            Draws the charts queued since the last render. Runs after the render that put each chart
+            area on the page; the shared renderer also waits briefly if Blazor is still updating it.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.DashboardViewerPage.DisposeAsync">
+            <summary>Releases every chart this page drew when the user leaves it.</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.DashboardViewerPage.LoadComponentDataAsync(DynamicDashboardCommon.Models.DashboardComponent)">
+            <summary>
+            Runs one component's SQL. Success stores the rows (charts are queued for drawing); failure
+            stores the real error message from the API, shown on the card instead of "No data available".
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.DashboardViewerPage.RenderAllCharts">
+            <summary>Requests a redraw of every chart that has data (drawn after the next render).</summary>
+        </member>
+        <member name="M:DynamicDashboardFE.Pages.User.DashboardViewerPage.RenderChart(DynamicDashboardCommon.Models.DashboardComponent)">
+            <summary>Requests a redraw of one chart (drawn after the next render).</summary>
         </member>
         <member name="M:DynamicDashboardFE.Components.Dashboard.TemplateIcons.GetTemplateIcon(System.String,System.String)">
             <summary>

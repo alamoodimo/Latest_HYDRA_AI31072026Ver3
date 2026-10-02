@@ -1,6 +1,7 @@
 ﻿using DynamicDashboardCommon.Enums;
 using DynamicDashboardCommon.Models;
 using DynamicDasboardWebAPI.Services.LLM;
+using DynamicDasboardWebAPI.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,17 +20,32 @@ namespace DynamicDasboardWebAPI.Services
         private readonly ILLMService _llmService;
         private readonly DatabaseSchemaService _schemaService;
         private readonly DatabaseService _databaseService; // NEW: Added
+        private readonly IComponentSqlRepairService _repairService;
+        private readonly int _maxSchemaTablesInPrompt;
+
+        // Messages older clients send when the user (not an error) asked for a new component.
+        private static readonly HashSet<string> LegacyUserRequestMessages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "User requested different component",
+            "User requested regeneration"
+        };
 
         public AssistantService(
             ILogsService logsService,
             ILLMService llmService,
             DatabaseSchemaService schemaService,
-            DatabaseService databaseService) // NEW: Added
+            DatabaseService databaseService, // NEW: Added
+            IComponentSqlRepairService repairService,
+            IConfiguration configuration)
         {
             _logsService = logsService ?? throw new ArgumentNullException(nameof(logsService));
             _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
             _schemaService = schemaService ?? throw new ArgumentNullException(nameof(schemaService));
             _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService)); // NEW
+            _repairService = repairService ?? throw new ArgumentNullException(nameof(repairService));
+
+            var config = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _maxSchemaTablesInPrompt = Math.Max(5, config.GetValue<int>("DashboardAI:RepairPromptMaxTables", 40));
         }
 
         public async Task<AssistantSuggestionResponse> GenerateSuggestionsAsync(AssistantChatRequest request)
@@ -131,7 +147,7 @@ When suggesting components:
             sb.AppendLine();
             sb.AppendLine($"Target Database: {databaseType}");
             sb.AppendLine();
-            sb.AppendLine(GetDbSyntaxGuidance(databaseType));
+            sb.AppendLine(SqlDialectGuidance.For(databaseType));
             sb.AppendLine();
 
             sb.AppendLine(@"Output Format:
@@ -266,89 +282,171 @@ Example output:
         }
 
         /// <summary>
-        /// Regenerates a single failed component with new title, SQL, and optionally different type
+        /// Regenerates one dashboard component. Two modes (request.Mode):
+        /// - Repair ("Fix with AI" on a failed or empty card): keeps the title, purpose and type and
+        ///   returns corrected SQL that was test-run and returns data (ComponentSqlRepairService).
+        ///   If no working SQL is found, Success = false and the component should stay unchanged.
+        /// - Alternative (the user wants something else): a different component of the same type;
+        ///   its SQL is also test-run and, if needed, repaired before it is returned.
+        /// Clients that do not send Mode: inferred from ErrorMessage (see ResolveRegenerationMode).
         /// </summary>
         public async Task<AssistantSuggestionResponse> RegenerateComponentAsync(RegenerateComponentRequest request)
         {
             try
             {
-                if (request.DatabaseId <= 0)
+                if (request == null || request.DatabaseId <= 0)
                 {
-                    return new AssistantSuggestionResponse
-                    {
-                        Success = false,
-                        Message = "Invalid database ID",
-                        Suggestions = new List<ComponentSuggestion>()
-                    };
+                    return FailedResponse("Invalid database ID");
                 }
 
-                var schema = await _schemaService.GetSchemaObject(request.DatabaseId, useCache: true);
-                if (schema == null)
-                {
-                    return new AssistantSuggestionResponse
-                    {
-                        Success = false,
-                        Message = "Could not retrieve database schema",
-                        Suggestions = new List<ComponentSuggestion>()
-                    };
-                }
-
-                // NEW: Get database type
-                var database = await _databaseService.GetDatabaseByIdAsync(request.DatabaseId);
-                string databaseType = database?.DatabaseTypeName ?? "SQL Server";
-
-                // Pass component type AND database type to system prompt
-                var systemPrompt = BuildRegenerateSystemPrompt(request.DataViewingTypeID, request.ChartType, databaseType);
-                var userPrompt = BuildRegenerateUserPrompt(request, schema, databaseType);
-
-                var llmResponse = await _llmService.GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt);
-
-                if (string.IsNullOrWhiteSpace(llmResponse))
-                {
-                    return new AssistantSuggestionResponse
-                    {
-                        Success = false,
-                        Message = "LLM returned empty response",
-                        Suggestions = new List<ComponentSuggestion>()
-                    };
-                }
-
-                var suggestions = ParseLLMResponse(llmResponse);
-
-                // Take only the first suggestion and enforce same type
-                var replacement = suggestions.FirstOrDefault();
-                if (replacement != null)
-                {
-                    // Enforce same type (in case LLM didn't follow instructions)
-                    replacement.DataViewingTypeID = request.DataViewingTypeID;
-                    if (request.DataViewingTypeID == 4)
-                    {
-                        replacement.ChartType = request.ChartType;
-                    }
-                    replacement.GridWidth = request.GridWidth;
-                    replacement.GridHeight = request.GridHeight;
-                }
-
-                return new AssistantSuggestionResponse
-                {
-                    Success = replacement != null,
-                    Message = replacement != null
-                        ? "Generated replacement component"
-                        : "Could not generate replacement",
-                    Suggestions = replacement != null
-                        ? new List<ComponentSuggestion> { replacement }
-                        : new List<ComponentSuggestion>()
-                };
+                return ResolveRegenerationMode(request) == ComponentRegenerationMode.Repair
+                    ? await RepairComponentAsync(request)
+                    : await GenerateAlternativeComponentAsync(request);
             }
             catch (Exception ex)
             {
-                return new AssistantSuggestionResponse
-                {
-                    Success = false,
-                    Message = $"Error regenerating component: {ex.Message}",
-                    Suggestions = new List<ComponentSuggestion>()
-                };
+                return FailedResponse($"Error regenerating component: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Uses the mode the client sent. Older clients send none: a real error message means the
+        /// component failed (Repair); an empty message or a "user requested" message means the user
+        /// wants a different component (Alternative).
+        /// </summary>
+        private static ComponentRegenerationMode ResolveRegenerationMode(RegenerateComponentRequest request)
+        {
+            if (request.Mode != ComponentRegenerationMode.Unspecified)
+            {
+                return request.Mode;
+            }
+
+            var message = request.ErrorMessage?.Trim();
+            var userAskedForSomethingElse = string.IsNullOrEmpty(message) || LegacyUserRequestMessages.Contains(message);
+
+            return userAskedForSomethingElse ? ComponentRegenerationMode.Alternative : ComponentRegenerationMode.Repair;
+        }
+
+        /// <summary>
+        /// Repair mode: same title, description and type; only the SQL changes, and only to SQL that
+        /// was test-run successfully.
+        /// </summary>
+        private async Task<AssistantSuggestionResponse> RepairComponentAsync(RegenerateComponentRequest request)
+        {
+            var repair = await _repairService.RepairAsync(new ComponentSqlRepairRequest
+            {
+                DatabaseId = request.DatabaseId,
+                Title = request.FailedTitle,
+                Description = request.FailedDescription,
+                DataViewingTypeID = request.DataViewingTypeID,
+                ChartType = request.ChartType,
+                Sql = request.FailedSql
+            });
+
+            if (!repair.Success)
+            {
+                return FailedResponse(repair.Message);
+            }
+
+            var message = repair.WasRepaired
+                ? (string.IsNullOrWhiteSpace(repair.Explanation) ? "Query fixed." : $"Query fixed: {repair.Explanation}")
+                : "The query already works; no change was needed.";
+
+            return new AssistantSuggestionResponse
+            {
+                Success = true,
+                Message = message,
+                Suggestions = new List<ComponentSuggestion>
+                {
+                    new ComponentSuggestion
+                    {
+                        Title = request.FailedTitle,
+                        Description = request.FailedDescription,
+                        DataViewingTypeID = request.DataViewingTypeID,
+                        ChartType = request.ChartType,
+                        SqlTemplate = repair.Sql,
+                        GridWidth = request.GridWidth,
+                        GridHeight = request.GridHeight
+                    }
+                }
+            };
+        }
+
+        /// <summary>
+        /// Alternative mode: asks the AI for a different component of the same type, then makes sure
+        /// its SQL works (test-run, repaired if needed) before returning it.
+        /// </summary>
+        private async Task<AssistantSuggestionResponse> GenerateAlternativeComponentAsync(RegenerateComponentRequest request)
+        {
+            var schema = await _schemaService.GetSchemaObject(request.DatabaseId, useCache: true);
+            if (schema == null)
+            {
+                return FailedResponse("Could not retrieve database schema");
+            }
+
+            // NEW: Get database type
+            var database = await _databaseService.GetDatabaseByIdAsync(request.DatabaseId);
+            string databaseType = database?.DatabaseTypeName ?? "SQL Server";
+
+            // Pass component type AND database type to system prompt
+            var systemPrompt = BuildRegenerateSystemPrompt(request.DataViewingTypeID, request.ChartType, databaseType);
+            var userPrompt = BuildRegenerateUserPrompt(request, schema, databaseType);
+
+            var llmResponse = await _llmService.GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt);
+            if (string.IsNullOrWhiteSpace(llmResponse))
+            {
+                return FailedResponse("LLM returned empty response");
+            }
+
+            var replacement = ParseLLMResponse(llmResponse).FirstOrDefault();
+            if (replacement == null)
+            {
+                return FailedResponse("Could not generate replacement");
+            }
+
+            // Enforce same type and size (in case the LLM did not follow instructions)
+            replacement.DataViewingTypeID = request.DataViewingTypeID;
+            if (request.DataViewingTypeID == (int)DataViewingTypeEnum.Chart)
+            {
+                replacement.ChartType = request.ChartType;
+            }
+            replacement.GridWidth = request.GridWidth;
+            replacement.GridHeight = request.GridHeight;
+
+            // Make sure the new component's query runs and returns data before offering it.
+            var verified = await _repairService.RepairAsync(new ComponentSqlRepairRequest
+            {
+                DatabaseId = request.DatabaseId,
+                Title = replacement.Title,
+                Description = replacement.Description,
+                DataViewingTypeID = replacement.DataViewingTypeID,
+                ChartType = replacement.ChartType,
+                Sql = replacement.SqlTemplate
+            });
+
+            if (!verified.Success)
+            {
+                return FailedResponse($"The AI suggested \"{replacement.Title}\", but its query could not be made to work. {verified.Message}");
+            }
+
+            replacement.SqlTemplate = verified.Sql;
+
+            return new AssistantSuggestionResponse
+            {
+                Success = true,
+                Message = "Generated replacement component",
+                Suggestions = new List<ComponentSuggestion> { replacement }
+            };
+        }
+
+        private static AssistantSuggestionResponse FailedResponse(string message)
+        {
+            return new AssistantSuggestionResponse
+            {
+                Success = false,
+                Message = message,
+                Suggestions = new List<ComponentSuggestion>()
+            };
         }
 
         private string BuildRegenerateSystemPrompt(int dataViewingTypeId, string chartType, string databaseType)
@@ -370,7 +468,7 @@ Example output:
 
             sb.AppendLine($@"You are an expert business intelligence analyst. Your task is to generate ONE replacement dashboard component.
 
-The previous component failed or the user wants a different one. Generate a COMPLETELY DIFFERENT component but keep the SAME TYPE.
+The user wants a DIFFERENT component than the current one: a new insight, but the SAME TYPE.
 
 CRITICAL RULES:
 1. Component type MUST be: {componentTypeName}{chartTypeInfo}
@@ -378,7 +476,10 @@ CRITICAL RULES:
 {(dataViewingTypeId == 4 ? $"3. chartType MUST be: \"{chartType}\"" : "")}
 
 4. Provide a new, meaningful title
-5. SQL must be valid and return data according to provided database type and schema structure");
+5. SQL must be valid and return data according to provided database type and schema structure
+6. Use only tables and columns listed in the schema, spelled exactly as shown
+7. Do not filter relative to today's date unless the title is about a recent period; the data may be historical
+8. A single read-only SELECT statement (no INSERT, UPDATE, DELETE or DDL)");
 
             // NEW: Add database-specific syntax rules
             sb.AppendLine();
@@ -386,7 +487,7 @@ CRITICAL RULES:
             sb.AppendLine();
             sb.AppendLine($"Target Database: {databaseType}");
             sb.AppendLine();
-            sb.AppendLine(GetDbSyntaxGuidance(databaseType));
+            sb.AppendLine(SqlDialectGuidance.For(databaseType));
             sb.AppendLine();
 
             sb.AppendLine($@"Output Format:
@@ -420,17 +521,8 @@ Return ONLY a valid JSON array with exactly ONE component:
                 _ => "Component"
             };
 
-            bool isUserRequested = request.ErrorMessage == "User requested different component";
-
-            if (isUserRequested)
-            {
-                prompt.AppendLine($"Generate ONE alternative {componentTypeName} component to replace the current one.");
-                prompt.AppendLine("The user wants a DIFFERENT visualization or insight, but SAME component type.");
-            }
-            else
-            {
-                prompt.AppendLine($"Generate ONE replacement {componentTypeName} component for a failed dashboard component.");
-            }
+            prompt.AppendLine($"Generate ONE alternative {componentTypeName} component to replace the current one.");
+            prompt.AppendLine("The user wants a DIFFERENT visualization or insight, but SAME component type.");
             prompt.AppendLine();
 
             // NEW: Remind about database type
@@ -447,14 +539,10 @@ Return ONLY a valid JSON array with exactly ONE component:
             }
             prompt.AppendLine();
 
-            // Current/Failed component info
-            prompt.AppendLine("CURRENT COMPONENT:");
+            // Current component (to be replaced by something different)
+            prompt.AppendLine("CURRENT COMPONENT (replace with something different):");
             prompt.AppendLine($"- Title: {request.FailedTitle}");
             prompt.AppendLine($"- SQL: {request.FailedSql}");
-            if (!isUserRequested)
-            {
-                prompt.AppendLine($"- Error: {request.ErrorMessage}");
-            }
             prompt.AppendLine();
 
             // Grid constraints
@@ -474,93 +562,14 @@ Return ONLY a valid JSON array with exactly ONE component:
                 prompt.AppendLine();
             }
 
-            // Database schema
+            // Database schema: all columns of every listed table (shared builder)
             prompt.AppendLine("DATABASE SCHEMA:");
-            foreach (var table in schema.Tables.Take(15))
-            {
-                prompt.AppendLine($"- {table.DBName ?? table.FriendlyName}");
-                if (table.Columns != null && table.Columns.Any())
-                {
-                    var columns = table.Columns.Take(10).Select(c => $"{c.DBName ?? c.FriendlyName} ({c.DataType})");
-                    prompt.AppendLine($"  Columns: {string.Join(", ", columns)}");
-                }
-            }
+            prompt.AppendLine(SchemaPromptBuilder.Build(schema, $"{request.FailedSql} {request.FailedTitle}", _maxSchemaTablesInPrompt));
             prompt.AppendLine();
 
             prompt.AppendLine($"Generate ONE new {componentTypeName} with completely different SQL but SAME type.");
 
             return prompt.ToString();
-        }
-
-        /// <summary>
-        /// Returns database-specific SQL syntax guidance for the LLM.
-        /// </summary>
-        private string GetDbSyntaxGuidance(string databaseType)
-        {
-            var dbType = databaseType?.ToLower() ?? "sql server";
-
-            if (dbType.Contains("mysql"))
-            {
-                return @"**MySQL Syntax Rules - YOU MUST FOLLOW:**
-- Use `LIMIT N` to restrict rows (e.g., `SELECT * FROM table LIMIT 10`)
-- Use `DATE_FORMAT(date, '%Y-%m')` for date formatting
-- Use `NOW()` or `CURDATE()` for current date/time
-- Use `IFNULL(column, default)` for null handling
-- Use `CONCAT(str1, str2)` for string concatenation
-- Use `YEAR(date)`, `MONTH(date)`, `DAY(date)` for date parts
-- Use `DATEDIFF(date1, date2)` for date difference (returns days)
-- Boolean: Use `TRUE`/`FALSE` or `1`/`0`
-- Use `DATE_ADD(date, INTERVAL 1 DAY)` for date arithmetic
-- DO NOT use: TOP, GETDATE(), ISNULL(), FORMAT()";
-            }
-            else if (dbType.Contains("oracle"))
-            {
-                return @"**Oracle Syntax Rules - YOU MUST FOLLOW:**
-- Use `FETCH FIRST N ROWS ONLY` to restrict rows
-- Or use `WHERE ROWNUM <= N` for older Oracle versions
-- Use `TO_CHAR(date, 'YYYY-MM')` for date formatting
-- Use `SYSDATE` for current date/time
-- Use `NVL(column, default)` for null handling
-- Use `||` for string concatenation
-- Use `EXTRACT(YEAR FROM date)` for date parts
-- Use `ADD_MONTHS(date, 1)` for date arithmetic
-- Every SELECT must have FROM (use `FROM DUAL` for constants)
-- String literals: Use single quotes only
-- DO NOT use: TOP, LIMIT, GETDATE(), ISNULL(), DATE_FORMAT()";
-            }
-            else if (dbType.Contains("postgres"))
-            {
-                return @"**PostgreSQL Syntax Rules - YOU MUST FOLLOW:**
-- Use `LIMIT N` to restrict rows (e.g., `SELECT * FROM table LIMIT 10`)
-- Use `TO_CHAR(date, 'YYYY-MM')` for date formatting
-- Use `NOW()` or `CURRENT_DATE` for current date/time
-- Use `COALESCE(column, default)` for null handling
-- Use `||` or `CONCAT(str1, str2)` for string concatenation
-- Use `EXTRACT(YEAR FROM date)` or `DATE_PART('year', date)` for date parts
-- Boolean: Use `TRUE`/`FALSE`
-- Use `INTERVAL '1 day'` for date arithmetic (e.g., `date + INTERVAL '1 day'`)
-- Use `::` for type casting (e.g., `'2023-01-01'::date`)
-- Use `ILIKE` for case-insensitive pattern matching
-- String literals: Use single quotes only
-- DO NOT use: TOP, GETDATE(), ISNULL(), FORMAT(), + for string concatenation
-- JSON support: Use `->>` for JSON extraction, `@?` for JSON path queries";
-            }
-            else // Default: SQL Server
-            {
-                return @"**SQL Server Syntax Rules - YOU MUST FOLLOW:**
-- Use `TOP N` to restrict rows (e.g., `SELECT TOP 10 * FROM table`)
-- Use `FORMAT(date, 'yyyy-MM')` for date formatting
-- Use `GETDATE()` for current date/time
-- Use `ISNULL(column, default)` for null handling
-- Use `+` or `CONCAT(str1, str2)` for string concatenation
-- Use `YEAR(date)`, `MONTH(date)`, `DAY(date)` for date parts
-- Use `DATEDIFF(day, date1, date2)` for date difference
-- Use `DATEADD(day, 1, date)` for date arithmetic
-- Boolean: Use `1`/`0` (no TRUE/FALSE)
-- String literals: Use single quotes only
-- Use `LIKE` with `%` wildcard
-- DO NOT use: LIMIT, NOW(), IFNULL(), DATE_FORMAT(), NVL(), FETCH FIRST";
-            }
         }
 
         private List<ComponentSuggestion> ParseLLMResponse(string llmResponse)

@@ -4,6 +4,50 @@
         <name>DynamicDashboardCommon</name>
     </assembly>
     <members>
+        <member name="T:DynamicDashboardCommon.Enums.ComponentRegenerationMode">
+            <summary>
+            What the AI should do when asked to regenerate a dashboard component.
+            Not stored in the database. If it is ever persisted (e.g. in an audit of AI repairs),
+            store the numeric value in an INT column so existing values stay stable.
+            </summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentRegenerationMode.Unspecified">
+            <summary>
+            Not sent by the caller (older clients). The API infers the mode from the error message.
+            </summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentRegenerationMode.Repair">
+            <summary>
+            Keep the component's title, purpose and type; correct its SQL so it runs and returns data.
+            Used by "Fix with AI" on a failed or empty component.
+            </summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentRegenerationMode.Alternative">
+            <summary>
+            Replace the component with a different one of the same type (the user wants something else).
+            </summary>
+        </member>
+        <member name="T:DynamicDashboardCommon.Enums.ComponentSqlProblem">
+            <summary>
+            Outcome of checking a component's SQL against its database.
+            Not stored in the database (same note as above applies if it is persisted later).
+            </summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentSqlProblem.None">
+            <summary>The query runs and returns at least one row.</summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentSqlProblem.QueryFailed">
+            <summary>The database rejected the query (syntax, unknown column, timeout, ...).</summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentSqlProblem.NoRows">
+            <summary>The query runs but returns no rows.</summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentSqlProblem.MissingSql">
+            <summary>The component has no SQL.</summary>
+        </member>
+        <member name="F:DynamicDashboardCommon.Enums.ComponentSqlProblem.NotReadOnly">
+            <summary>The SQL is not a single read-only SELECT statement.</summary>
+        </member>
         <member name="T:DynamicDashboardCommon.Enums.EnumDatabaseType">
             <summary>
             Enum representing the supported database types in the application.
@@ -251,6 +295,32 @@
             </summary>
         </member>
         <!-- Badly formed XML comment ignored for member "T:DynamicDashboardCommon.Helper.DictionaryObjectConverter" -->
+        <member name="T:DynamicDashboardCommon.Helper.QueryResultHelper">
+            <summary>
+            Shared helpers for query results (api/query/execute), used by the Dashboard Builder and
+            the Dashboard Viewer so both read responses, errors and numbers the same way.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardCommon.Helper.QueryResultHelper.ReadQueryExecutionResponseAsync(System.Net.Http.HttpResponseMessage)">
+            <summary>
+            Reads an api/query/execute response, success or failure. A failure body can be the
+            QueryExecutionResponse itself (with ErrorMessage), the API's generic { "message": ... }
+            error, or plain text; the most specific message available ends up in ErrorMessage.
+            Never returns null.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardCommon.Helper.QueryResultHelper.TryGetDecimal(System.Object,System.Decimal@)">
+            <summary>
+            Reads a numeric value from a query result cell. Values arrive as JsonElement; numbers are
+            parsed with the invariant culture so the user's locale cannot break them.
+            </summary>
+        </member>
+        <member name="M:DynamicDashboardCommon.Helper.QueryResultHelper.GetKpiValue(System.Collections.Generic.List{System.Collections.Generic.Dictionary{System.String,System.Object}})">
+            <summary>
+            KPI value: the first numeric value of the first row (falls back to the first value),
+            so a KPI query whose number is not in the first column still shows the number.
+            </summary>
+        </member>
         <member name="T:DynamicDashboardCommon.Models.JwtSettings">
             <summary>
             JWT authentication configuration settings.
@@ -438,6 +508,73 @@
             <summary>
             Request model for regenerating a failed component
             </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.RegenerateComponentRequest.FailedDescription">
+            <summary>
+            The component's current description. Repair mode keeps it unchanged and gives it to the
+            AI as context, so the corrected query keeps the same business meaning.
+            </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.RegenerateComponentRequest.Mode">
+            <summary>
+            Repair = fix this component's SQL (same title and purpose);
+            Alternative = replace it with a different component of the same type.
+            Unspecified (older clients) = inferred from ErrorMessage.
+            </summary>
+        </member>
+        <member name="T:DynamicDashboardCommon.Models.ComponentSqlValidationResult">
+            <summary>
+            Result of checking a component's SQL against its database (runs it with a 1-row limit).
+            </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlValidationResult.Problem">
+            <summary>None when the query runs and returns at least one row.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlValidationResult.Message">
+            <summary>Readable description of the problem (empty when there is none).</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlValidationResult.IsValid">
+            <summary>True when the query runs and returns at least one row.</summary>
+        </member>
+        <member name="T:DynamicDashboardCommon.Models.ComponentSqlRepairRequest">
+            <summary>
+            Request to repair one dashboard component's SQL while keeping its purpose and type.
+            </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairRequest.DataViewingTypeID">
+            <summary>1 = Table, 2 = Label, 3 = Number (KPI), 4 = Chart (DataViewingTypeEnum).</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairRequest.ChartType">
+            <summary>Chart type for charts (bar, line, pie, ...); ignored for other types.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairRequest.Sql">
+            <summary>The current SQL (may be empty when the component has none yet).</summary>
+        </member>
+        <member name="T:DynamicDashboardCommon.Models.ComponentSqlRepairResult">
+            <summary>
+            Outcome of a repair: the working SQL, or the last problem when no working SQL was found.
+            </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.Success">
+            <summary>True when Sql runs and returns at least one row.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.Sql">
+            <summary>The working SQL (the original when it already worked); the original SQL on failure.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.WasRepaired">
+            <summary>True when the SQL was changed by the AI.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.AttemptsUsed">
+            <summary>Number of AI repair attempts used.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.LastProblem">
+            <summary>The problem of the last SQL that was checked (None on success).</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.Message">
+            <summary>Readable summary for the user or the log.</summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.ComponentSqlRepairResult.Explanation">
+            <summary>Short note from the AI on what it changed (when repaired).</summary>
         </member>
         <member name="T:DynamicDashboardCommon.Models.ComponentTemplate">
             <summary>
@@ -3201,6 +3338,16 @@
         <member name="P:DynamicDashboardCommon.Models.QueryExecutionResponse.Success">
             <summary>
             Flag indicating whether query execution was successful
+            </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.QueryExecutionResponse.IsTruncated">
+            <summary>
+            True when the result was cut off at the configured row limit (Query:MaxResultRows).
+            </summary>
+        </member>
+        <member name="P:DynamicDashboardCommon.Models.QueryExecutionResponse.RowLimit">
+            <summary>
+            The maximum number of rows returned for this query.
             </summary>
         </member>
         <member name="P:DynamicDashboardCommon.Models.QueryExecutionResponse.ErrorMessage">

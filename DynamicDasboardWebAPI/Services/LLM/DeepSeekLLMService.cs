@@ -251,19 +251,31 @@ Do NOT generate SQL - only explain what the chart will show.";
             }
         }
 
+        public Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt)
+        {
+            return GenerateDashboardSuggestionsCoreAsync(systemPrompt, userPrompt, null);
+        }
 
-        public async Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt)
+        /// <summary>
+        /// Same as GenerateDashboardSuggestionsAsync(systemPrompt, userPrompt) with a custom output
+        /// budget for short answers (e.g. a repaired SQL query).
+        /// </summary>
+        public Task<string> GenerateDashboardSuggestionsAsync(string systemPrompt, string userPrompt, int maxTokens)
+        {
+            return GenerateDashboardSuggestionsCoreAsync(systemPrompt, userPrompt, maxTokens);
+        }
+
+        /// <summary>Shared implementation; maxTokens = null keeps the provider's configured budget.</summary>
+        private async Task<string> GenerateDashboardSuggestionsCoreAsync(string systemPrompt, string userPrompt, int? maxTokens)
         {
             try
             {
-                // Call Claude API with system and user prompts
-                var response = await CallDeepSeekApiAsync(systemPrompt, userPrompt);
-
-                return response;
+                // Call DeepSeek API with system and user prompts
+                return await CallDeepSeekApiAsync(systemPrompt, userPrompt, maxTokens);
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error generating dashboard suggestions with Claude: {ex.Message}", ex);
+                throw new Exception($"Error generating dashboard suggestions with DeepSeek ({_model}): {ex.Message}", ex);
             }
         }
 
@@ -341,8 +353,9 @@ Do NOT generate SQL - only explain what the chart will show.";
             return prompt.ToString();
         }
 
-        private async Task<string> CallDeepSeekApiAsync(string systemPrompt, string userPrompt)
+        private async Task<string> CallDeepSeekApiAsync(string systemPrompt, string userPrompt, int? maxTokens = null)
         {
+
             // Prepare request
             var requestBody = new
             {
@@ -357,7 +370,7 @@ Do NOT generate SQL - only explain what the chart will show.";
 
                 #region Claude Modification - use configured values instead of hardcoded temp/tokens
                 temperature = _temperature,
-                max_tokens = _maxTokens
+                max_tokens = maxTokens ?? _maxTokens
                 #endregion
             };
 
